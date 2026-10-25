@@ -63,6 +63,8 @@ body {
       <input id="fPw2" class="field" type="password" maxlength="40" autocomplete="new-password" aria-label="確認密碼" placeholder="再輸入一次密碼">
       <input id="fMail" class="field" type="email" maxlength="60" autocomplete="email" aria-label="信箱" placeholder="選填，聯絡用">
     </form>
+    <input id="chatIn" class="field" type="text" maxlength="60" autocomplete="off" enterkeyhint="send" aria-label="聊天訊息" placeholder="輸入訊息，按 Enter 送出">
+    <input id="fidIn" class="field" type="text" maxlength="16" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="好友帳號" placeholder="輸入好友的帳號">
   </div>
 </div>
 
@@ -98,6 +100,9 @@ function weighted(list) { // [[item, w], ...]
 }
 const fmt = n => Math.floor(n).toLocaleString('en-US');
 // Display names are typed by players: keep them short, single-line and free of control/invisible characters.
+// light profanity mask for chat (the official team can extend this list)
+const BAD_WORDS = ['幹你', '幹您', '操你', '靠北', '靠杯', '三小', '機掰', '雞掰', '王八蛋', '白痴', '智障', '去死', 'fuck', 'shit', 'bitch'];
+function censor(v) { let s = String(v || ''); for (const w of BAD_WORDS) s = s.split(new RegExp(w, 'gi')).join('＊'.repeat(w.length)); return s; }
 function cleanName(v, fallback = '釣手') {
   const t = String(v ?? '').replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/g, '').trim();
   const cp = Array.from(t).slice(0, 8).join('');
@@ -197,6 +202,7 @@ function freshSave() {
     bait: { '萬能餌': 40, '蚯蚓': 10 },
     equip: { rod: '12feet', line: '0.4', float: 'ball', bait: '萬能餌' },
     records: {}, today: { date: today(), list: [] }, lastLogin: '', bet: {}, totalCaught: 0, sound: true,
+    char: 'girl', uw: true, blocked: {}, gifts: { date: today(), n: 0 },
   };
 }
 let S = freshSave();
@@ -450,6 +456,7 @@ const EMOTES = [['👍', '讚！'], ['💪', '加油！'], ['😮', '好大！']
    With neither, the game is a complete offline single-player game. */
 const NET = {
   mode: 'off', room: null, db: null, user: null, uid: null, connected: false, peers: [], board: [], feed: [], bubbles: {},
+  chat: { world: [], pond: [] }, says: {}, unread: 0, friends: {}, requests: {}, giftQ: [],
   sentAt: 0, lastJson: '', writing: Promise.resolve(), canEmit: true, em: null,
   async init() {
     if (FB.available()) { this.mode = 'fire'; FB.init(); return; }   // goes online after login
@@ -463,6 +470,11 @@ const NET = {
         room.onConnection(c => { this.connected = c; }, () => {});
         room.on('catch', m => this.onCatch(m), () => {});
         room.on('emote', m => this.onEmote(m), () => {});
+        room.on('chat', m => {
+          if (m.sameTab) return; const d = m.data || {};
+          if (d.r === 'pond' && !(scene === pond && pond.p && pond.p.id === d.p)) return;
+          this.onChat(d.r === 'pond' ? 'pond' : 'world', { uid: m.peer, n: d.n, m: d.m, t: Date.now() }, true);
+        }, () => {});
       }
       if (db) {
         db.collection('players').orderBy('ep', 'desc').limit(50).onSnapshot(
@@ -484,8 +496,9 @@ const NET = {
   },
   presenceState() {
     const r2 = v => Math.round(v * 100) / 100;
-    const pr = { n: S.name, lv: LV(), p: scene === pond && pond.p ? pond.p.id : 0, st: scene === pond ? pond.st : scene === catchScene ? 'catch' : scene === titleScene ? 'title' : 'lobby', f: null, h: null, T: 0, sp: null, em: this.em };
+    const pr = { n: S.name, lv: LV(), p: scene === pond && pond.p ? pond.p.id : 0, st: scene === pond ? pond.st : scene === catchScene ? 'catch' : scene === titleScene ? 'title' : 'lobby', f: null, h: null, T: 0, sp: null, em: this.em, c: S.char === 'boy' ? 'b' : 'g' };
     if (scene === pond) {
+      pr.x = r2(pond.wx); pr.w = pond.walk.dir || 0;
       if (pond.float && pond.st === 'wait') pr.f = [r2(pond.float.x), r2(pond.float.z), pond.float.sink > .3 ? 1 : 0];
       if (pond.lure && pond.st === 'lure') pr.f = [r2(pond.lure.x), r2(pond.lure.z), 2];
       if (pond.fish && (pond.st === 'fight' || pond.st === 'hookset')) { pr.h = [r2(pond.fish.x), r2(pond.fish.z)]; pr.T = r2(pond.line.T); pr.sp = pond.fish.sp; }
@@ -524,14 +537,38 @@ const NET = {
     else this.emit('emote', { e: i });
   },
   pushFeed(msg) { this.feed.push({ msg, t: 0 }); if (this.feed.length > 4) this.feed.shift(); audio.tone(1175, .1, 'sine', .08); },
+  // ---------- chat
+  canChat() { return this.mode === 'fire' ? !!FB.user : this.mode === 'claude' && !!this.room && this.canEmit; },
+  onChat(room, m, fresh) {
+    if (!m || typeof m.m !== 'string' || S.blocked[m.uid]) return;
+    const msg = { uid: m.uid, n: cleanName(m.n, '釣友'), m: censor(m.m).slice(0, 60), t: m.t || 0, me: m.uid === this.uid };
+    const list = this.chat[room]; if (!list) return;
+    if (list.some(x => x.uid === msg.uid && x.t === msg.t && x.m === msg.m)) return;
+    list.push(msg); if (list.length > 40) list.shift();
+    if (!fresh) return;
+    if (room === 'pond' || (scene === pond && pond.p && this.pondPeers(pond.p.id).some(p => p.peer === msg.uid))) this.says[msg.me ? 'me' : msg.uid] = { m: msg.m, t: 0 };
+    if (!msg.me && !modals.some(x => x.isChat)) { this.unread++; audio.tone(988, .06, 'sine', .06); }
+  },
+  async sendChat(textIn, room) {
+    const m = censor(String(textIn || '').replace(/\s+/g, ' ').trim()).slice(0, 60);
+    if (!m) return false;
+    const now = performance.now();
+    if (now - (this.chatAt || 0) < 1600) { say('說話太快了，休息一下'); return false; }
+    this.chatAt = now;
+    if (this.mode === 'fire') return FB.sendChat(m, room);
+    if (this.mode === 'claude') { this.emit('chat', { m, r: room, n: S.name, p: scene === pond && pond.p ? pond.p.id : 0 }); this.onChat(room, { uid: 'me', n: S.name, m, t: Date.now() }, true); return true; }
+    return false;
+  },
   update(dt) {
     for (const f of this.feed) f.t += dt; this.feed = this.feed.filter(f => f.t < 7);
     for (const k in this.bubbles) { this.bubbles[k].t += dt; if (this.bubbles[k].t > 3) delete this.bubbles[k]; }
+    for (const k in this.says) { this.says[k].t += dt; if (this.says[k].t > 6) delete this.says[k]; }
+    if (this.giftQ.length && !modals.length && (scene === lobbyScene || (scene === pond && ['idle', 'wait'].includes(pond.st)))) openModal(messageModal(this.giftQ.shift(), '收到禮物'));
     if (this.em && this.mode === 'fire' && FB.now() - this.em[1] > 4000) this.em = null;
     this.tick();
   },
   drawFeed() {
-    let y = 196;
+    let y = scene === pond ? 300 : 196;
     for (const f of this.feed) {
       const a = clamp(Math.min(f.t / .3, (7 - f.t) / .6), 0, 1);
       ctx.font = '700 20px "Noto Sans TC",sans-serif'; const w = Math.min(560, ctx.measureText(f.msg).width + 36);
@@ -622,6 +659,7 @@ const FB = {
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {}
     this.dirty = true; this.flushSave();
     this.listen(); this.announce(); NET.saveProfile();
+    if (!user.isAnonymous && user.email) { const id = user.email.split('@')[0]; this.db.ref('ids/' + id).get().then(sn => { if (!sn.exists()) this.db.ref('ids/' + id).set(user.uid).catch(() => {}); }).catch(() => {}); }
   },
   listen() {
     if (this.listening) return; this.listening = true;
@@ -635,6 +673,50 @@ const FB = {
       const v = s.val() || {}; if (v.uid === this.user.uid || !(v.t > this.joinT)) return;
       NET.onCatch({ sameTab: false, data: v });
     });
+    this.db.ref('chat/world').orderByChild('t').limitToLast(30).on('child_added', s => { const v = s.val(); if (v) NET.onChat('world', v, v.t > this.joinT); });
+    const me = this.user.uid;
+    this.db.ref('friends/' + me).on('value', s => { NET.friends = s.val() || {}; });
+    this.db.ref('requests/' + me).on('value', s => { NET.requests = s.val() || {}; });
+    this.db.ref('gifts/' + me).on('child_added', s => this.claimGift(s));
+  },
+  // ---------- chat
+  async sendChat(m, room) {
+    if (!this.user) return false;
+    const path = room === 'pond' ? (this.pondId ? 'p' + this.pondId : null) : 'world';
+    if (!path) return false;
+    const TS = firebase.database.ServerValue.TIMESTAMP, key = this.db.ref('chat/' + path).push().key;
+    try {
+      await this.db.ref().update({ ['chat/' + path + '/' + key]: { uid: this.user.uid, n: cleanName(S.name), m, t: TS }, ['chatT/' + this.user.uid]: TS });
+      return true;
+    } catch (e) { say('訊息送出失敗，請稍後再試'); return false; }
+  },
+  // ---------- friends & gifts
+  async findId(id) {
+    const sn = await this.db.ref('ids/' + id.toLowerCase()).get();
+    return sn.exists() ? sn.val() : null;
+  },
+  async requestFriend(uid, name) {
+    if (!this.user || uid === this.user.uid) return 'self';
+    if (NET.friends[uid]) return 'already';
+    const TS = firebase.database.ServerValue.TIMESTAMP;
+    if (NET.requests[uid]) { await this.acceptFriend(uid, name || NET.requests[uid].n); return 'accepted'; }
+    await this.db.ref('requests/' + uid + '/' + this.user.uid).set({ n: cleanName(S.name), t: TS });
+    return 'sent';
+  },
+  async acceptFriend(uid, name) {
+    const me = this.user.uid, TS = firebase.database.ServerValue.TIMESTAMP;
+    await this.db.ref().update({ ['friends/' + me + '/' + uid]: { n: cleanName(name, '釣友'), t: TS }, ['friends/' + uid + '/' + me]: { n: cleanName(S.name), t: TS }, ['requests/' + me + '/' + uid]: null });
+  },
+  async declineFriend(uid) { await this.db.ref('requests/' + this.user.uid + '/' + uid).remove(); },
+  async removeFriend(uid) { const me = this.user.uid; await this.db.ref().update({ ['friends/' + me + '/' + uid]: null, ['friends/' + uid + '/' + me]: null }); },
+  async sendGift(uid, g) {
+    const TS = firebase.database.ServerValue.TIMESTAMP, key = this.db.ref('gifts/' + uid).push().key;
+    await this.db.ref().update({ ['gifts/' + uid + '/' + key]: { from: this.user.uid, n: cleanName(S.name), k: g.k, id: g.id || '', q: g.q | 0, t: TS }, ['giftT/' + this.user.uid]: TS });
+  },
+  claimGift(snap) {
+    const g = snap.val(); if (!g) return;
+    // remove first so a gift can never be counted twice, then add it to the save
+    snap.ref.remove().then(() => { const msg = applyGift(g); if (msg) { NET.giftQ.push(msg); audio.coin(); } }).catch(() => {});
   },
   announce() {
     if (!this.user) return;
@@ -655,10 +737,14 @@ const FB = {
   async setPond(id) {
     if (this.mePond) { const r = this.mePond; this.mePond = null; try { r.onDisconnect().cancel(); await r.remove(); } catch (e) {} }
     if (this.pondRef) { this.pondRef.off(); this.pondRef = null; }
+    if (this.chatRef) { this.chatRef.off(); this.chatRef = null; }
     this.pondMap = {}; this.pondId = id;
     if (!id || !this.user) return;
     this.pondRef = this.db.ref('pond/' + id);
     this.pondRef.on('value', s => this.onPond(s.val() || {}));
+    NET.chat.pond = []; const t0 = this.now();
+    this.chatRef = this.db.ref('chat/p' + id).orderByChild('t').limitToLast(30);
+    this.chatRef.on('child_added', s => { const v = s.val(); if (v) NET.onChat('pond', v, v.t > t0 - 500); });
     this.mePond = this.db.ref('pond/' + id + '/' + this.user.uid);
     this.mePond.onDisconnect().remove();
   },
@@ -721,7 +807,8 @@ precision mediump float;
 #endif
 varying vec2 v;
 uniform sampler2D tex; uniform sampler2D refl; uniform sampler2D uw;
-uniform float t; uniform vec2 res; uniform vec4 rip[16]; uniform vec3 sun; uniform float calm; uniform float bright; uniform float hz;
+uniform float t; uniform vec2 res; uniform vec4 rip[16]; uniform vec3 sun; uniform float calm; uniform float bright; uniform float hz; uniform float cam;
+float mir(float u){ float m = mod(u, 2.); return m < 1. ? m : 2. - m; }   // mirrored tiling for the wide pond
 vec3 m289(vec3 x){return x-floor(x*(1./289.))*289.;} vec2 m289(vec2 x){return x-floor(x*(1./289.))*289.;}
 vec3 perm(vec3 x){return m289(((x*34.)+1.)*x);}
 float sn(vec2 v){ const vec4 C=vec4(.211324865405187,.366025403784439,-.577350269189626,.024390243902439);
@@ -749,7 +836,9 @@ void main(){
   vec2 px = v*res;
   float d = clamp(v.y, 0., 1.);                 // 0 = far shore, 1 = at the dock
   float sc = mix(.15, 1., pow(d, .85));          // perspective size of a wave
-  vec2 g = vec2((px.x-360.)/sc, 520./(d+.09));   // position on the water plane
+  float fy = clamp((240. + px.y - hz)/(1255. - hz), 0., 1.);
+  float wx = px.x + cam*fy;                      // world x of this pixel (camera pans along the dock)
+  vec2 g = vec2((wx-360.)/sc, 520./(d+.09));     // position on the water plane
   float gust = .55 + .75*smoothstep(-.35, .75, sn(g*.0016 + vec2(t*.035, -t*.06)));
   vec2 n = waves(g)*.55
          + vec2(sn(g*.031+vec2(t*.17,t*.05)+3.1), sn(g*.029+vec2(-t*.12,-t*.15)+11.7))*.30
@@ -771,7 +860,7 @@ void main(){
     ringLight += max(0., cos((dist-front)*.23)) * env;
   }
   vec2 off = n * sc * vec2(7., 9.) / res;
-  vec3 col = texture2D(tex, clamp(v + off, vec2(.001), vec2(.999))).rgb;
+  vec3 col = texture2D(tex, vec2(clamp(mir(wx/res.x + off.x), .001, .999), clamp(v.y + off.y, .001, .999))).rgb;
   // fish and lures, seen through the moving surface
   vec4 f = texture2D(uw, clamp(v + off*1.9, vec2(.001), vec2(.999)));
   col = mix(col, mix(f.rgb, col*vec3(.62,.86,.86), .22 + .2*(1.-d)), f.a);
@@ -779,7 +868,7 @@ void main(){
   col += vec3(.75,.95,.85) * caustic(g*.022) * smoothstep(.45, 1., d) * .16;
   // live reflection of sky and shore, strongest near the horizon (Fresnel)
   float sy = (2.*hz - (240. + px.y)) / 240.;
-  vec3 rc = texture2D(refl, vec2(clamp(v.x + off.x*2.4, .002, .998), clamp(sy + off.y*5., .01, .99))).rgb;
+  vec3 rc = texture2D(refl, vec2(clamp(mir(v.x + cam*.1/res.x + off.x*2.4), .002, .998), clamp(sy + off.y*5., .01, .99))).rgb;
   float fres = .04 + .6*pow(1.-d, 3.2);
   col = mix(col, rc, fres * .55);
   // sun: broad sheen plus twinkling glitter in the sun path
@@ -801,7 +890,7 @@ void main(){
       this.buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
       const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-      for (const n of ['tex', 'refl', 'uw', 't', 'res', 'rip', 'sun', 'calm', 'bright', 'hz']) this.u[n] = gl.getUniformLocation(pr, n);
+      for (const n of ['tex', 'refl', 'uw', 't', 'res', 'rip', 'sun', 'calm', 'bright', 'hz', 'cam']) this.u[n] = gl.getUniformLocation(pr, n);
       gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
       this.gl = gl; this.prog = pr; this.ok = true;
     } catch (e) { console.warn('water shader off', e); this.ok = false; }
@@ -821,8 +910,9 @@ void main(){
     this.src[name] = src;
   },
   setScene(waterImg, topImg) { this.upload('tex', waterImg, 0); this.upload('refl', topImg, 1); this.upload('uw', UW, 2); },
+  cam: 0,                 // camera pan in px at the dock; ripples are stored in world px so they stay put while panning
   ripple(x, y, amp = 1) { // logical screen coords
-    this.rip.push({ x, y: y - WATER_Y, age: 0, amp });
+    this.rip.push({ x: x + this.cam * depthF(y), y: y - WATER_Y, age: 0, amp });
     if (this.rip.length > 16) this.rip.shift();
   },
   render(t, dt, opts = {}) {
@@ -841,7 +931,8 @@ void main(){
     gl.uniform1i(this.u.tex, 0); gl.uniform1i(this.u.refl, 1); gl.uniform1i(this.u.uw, 2);
     gl.uniform1f(this.u.t, t); gl.uniform2f(this.u.res, LW, LH - WATER_Y); gl.uniform1f(this.u.hz, HZ);
     const arr = new Float32Array(64);
-    this.rip.forEach((r, i) => { arr.set([r.x, r.y, r.age, r.amp], i * 4); });
+    this.rip.forEach((r, i) => { arr.set([r.x - this.cam * depthF(r.y + WATER_Y), r.y, r.age, r.amp], i * 4); });
+    gl.uniform1f(this.u.cam, this.cam);
     gl.uniform4fv(this.u.rip, arr);
     gl.uniform3f(this.u.sun, opts.sunX ?? 470, 0, opts.sun ?? .75);
     gl.uniform1f(this.u.calm, opts.calm ?? 1);
@@ -900,10 +991,8 @@ function say(msg, dur = 2.2) { toast.msg = msg; toast.t = dur; }
 function hudTop(o = {}) {
   const y0 = 10;
   ui('top-UI/girl-head-panel', 4, y0, { s: .9 });
-  if (NET.mode === 'fire' && FB.user && hit('acct', { x: 4, y: y0, w: 140, h: 150 }, o.layer ?? 0).click) openModal(accountModal());
-  ctx.save(); ctx.beginPath(); ctx.arc(4 + 74 * .9, y0 + 82 * .9, 66 * .9, 0, Math.PI * 2); ctx.clip();
-  ui('fighting-top-UI/my-UI-head', 4 + 74 * .9, y0 + 82 * .9 + 6, { s: 1.0, ax: .5, ay: .5 });
-  ctx.restore();
+  if (hit('acct', { x: 4, y: y0, w: 140, h: 150 }, o.layer ?? 0).click) openModal(NET.mode === 'fire' && FB.user ? accountModal() : charModal());
+  drawHead(S.char, 4 + 74 * .9, y0 + 82 * .9, 66 * .9);
   // level arc + ball
   const lv = LV(), e0 = epForLv(lv), e1 = epForLv(lv + 1), prog = clamp((S.ep - e0) / Math.max(1, e1 - e0), 0, 1);
   ui('top-UI/girl-head-LV', 0, y0 + 84, { s: .9 });
@@ -1110,7 +1199,8 @@ function accountModal() {
         let y = anon ? 680 : 620;
         if (anon && textBtn('acBind', '綁定帳號', 360, y, 260, 64, { layer: 1, size: 28, colors: ['#ffd76a', '#e09a1a'], edge: '#7a4a00' }).click) { closeModal(m); AUTH.bindMode = true; AUTH.set('register'); go(titleScene); }
         y += anon ? 84 : 0;
-        if (textBtn('acName', '修改名稱', 360, y, 260, 64, { layer: 1, size: 28 }).click) { closeModal(m); openModal(renameModal()); }
+        if (textBtn('acName', '修改名稱', 270, y, 170, 64, { layer: 1, size: 26 }).click) { closeModal(m); openModal(renameModal()); }
+        if (textBtn('acChar', '更換角色', 450, y, 170, 64, { layer: 1, size: 26, colors: ['#7fe08a', '#2b9a3c'], edge: '#145b20' }).click) { closeModal(m); openModal(charModal()); }
         if (textBtn('acOut', '登出', 360, y + 84, 260, 64, { layer: 1, size: 28, colors: ['#ff8a7a', '#c0392b'], edge: '#6a140c' }).click) {
           if (anon) { closeModal(m); openModal(confirmModal('訪客登出後就無法再回到這個進度，確定要登出嗎？', () => FB.signOut())); }
           else FB.signOut();
@@ -1203,11 +1293,11 @@ const lobbyScene = {
         else if (id === 'tackle') openModal(tackleModal());
         else if (id === 'ranking') openModal(leaderboardModal());
         else if (id === 'achievement') openModal(recordsModal());
-        else openModal(messageModal('送禮功能即將開放！', '送禮'));
+        else if (socialOk()) openModal(friendsModal('list'));
       }
     });
     const b2 = [['invite', 'lobby/up-button-invite'], ['ad', 'lobby/up-button-AD']];
-    b2.forEach(([id, key], i) => { if (btn('m' + id, key, 74 + i * 143, 392, { s: .98 }).click) openModal(id === 'invite' ? messageModal(NET.mode === 'fire' ? '邀請朋友一起釣：\n把遊戲網址傳給朋友，註冊帳號登入後，進到同一個池就會站在你旁邊！' : '邀請朋友一起釣：\n1. 點頁面右上角的「分享」\n2. 加入朋友，權限選「協作者」\n3. 朋友打開同一個連結，進到同一個池就會站在你旁邊！', '邀請好友') : messageModal('目前沒有廣告活動。', '廣告')); });
+    b2.forEach(([id, key], i) => { if (btn('m' + id, key, 74 + i * 143, 392, { s: .98 }).click) openModal(id === 'invite' && NET.mode === 'fire' && FB.user ? friendsModal('add') : id === 'invite' ? messageModal(NET.mode === 'fire' ? '邀請朋友一起釣：\n把遊戲網址傳給朋友，註冊帳號登入後，進到同一個池就會站在你旁邊！' : '邀請朋友一起釣：\n1. 點頁面右上角的「分享」\n2. 加入朋友，權限選「協作者」\n3. 朋友打開同一個連結，進到同一個池就會站在你旁邊！', '邀請好友') : messageModal('目前沒有廣告活動。', '廣告')); });
     // who's online
     const n = NET.others().length;
     const oc = { x: 20, y: 460, w: 230, h: 56 };
@@ -1215,6 +1305,17 @@ const lobbyScene = {
     ctx.save(); ctx.fillStyle = NET.connected ? '#45e08a' : '#9aa7ad'; ctx.beginPath(); ctx.arc(oc.x + 28, oc.y + 28, 8, 0, Math.PI * 2); ctx.fill(); ctx.restore();
     text(NET.room ? (NET.connected ? `線上釣友 ${n}` : '連線中…') : '單機模式', oc.x + 46, oc.y + 29, { size: 22, weight: 900, color: '#fff' });
     if (hit('online', oc).click) openModal(onlineModal());
+    // chat / friends / character pills
+    const pill = (id, label, y, badge, fn) => {
+      const r = { x: 20, y, w: 170, h: 52 }; const h = hit(id, r);
+      ctx.save(); roundRect(r.x, r.y + (h.held ? 2 : 0), r.w, r.h, 26); ctx.fillStyle = 'rgba(4,40,56,.72)'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.stroke(); ctx.restore();
+      text(label, r.x + 24, r.y + 27, { size: 22, weight: 900, color: '#fff' });
+      if (badge) { ctx.save(); ctx.fillStyle = '#ff4a3a'; ctx.beginPath(); ctx.arc(r.x + r.w - 6, r.y + 6, 14, 0, Math.PI * 2); ctx.fill(); ctx.restore(); text(String(Math.min(99, badge)), r.x + r.w - 6, r.y + 7, { size: 16, weight: 900, align: 'center', color: '#fff' }); }
+      if (h.click) fn();
+    };
+    if (NET.canChat()) pill('lchat', '💬 聊天', 528, NET.unread, () => openModal(chatModal('world')));
+    if (NET.mode === 'fire') pill('lfr', '👥 好友', 590, Object.keys(NET.requests).length, () => { if (socialOk()) openModal(friendsModal(Object.keys(NET.requests).length ? 'req' : 'list')); });
+    pill('lchar', '🧑 換角色', NET.mode === 'fire' ? 652 : NET.canChat() ? 590 : 528, 0, () => openModal(charModal()));
     frame('missionfx', this.t * 15, 650, 410, { s: .82 });
     if (btn('mmission', 'lobby/up-button-missions', 650, 410, { s: .98 }).click) openModal(missionsModal());
     // scroll hint
@@ -1228,9 +1329,65 @@ const lobbyScene = {
    SCENE: pond (casting, waiting, fighting)
    ===================================================================== */
 const HZ = 262;            // horizon line on screen
-const proj = (lx, z) => { const f = 3.2 / (Math.max(z, -2.9) + 3.2); return { x: 360 + lx * 300 * f, y: HZ + (1255 - HZ) * f, f }; };
+// Pond camera: x positions are local to the player (0 = my spot on the dock); CAMX is the camera's offset from me
+// in the same units, so panning moves near things more than far things (true perspective).
+let CAMX = 0;
+const proj = (lx, z) => { const f = 3.2 / (Math.max(z, -2.9) + 3.2); return { x: 360 + (lx - CAMX) * 300 * f, y: HZ + (1255 - HZ) * f, f }; };
+const depthF = y => clamp((y - HZ) / (1255 - HZ), 0, 1);  // perspective scale of the water at screen row y
+const DOCK = [-5.6, 5.6];                                   // walkable dock, world units (1 unit = 300 px at the dock)
+const BODY = [392, 1266];                                   // where an angler's body centre / feet sit when the camera is on them
 const unprojZ = y => 3.2 * (1255 - HZ) / Math.max(1, y - HZ) - 3.2;
 const HAND_IDLE = [433, 1012], HAND_FIGHT = [510, 858];
+const FIGHT_ST = ['cast', 'hookset', 'fight', 'land', 'lure'];
+/* ---------------- anglers (女主角 = original art, 男主角 = rendered 3D stand-in) ---------------- */
+function charInfo(c) {
+  const m = (c === 'boy' || c === 'b') && A.man.meta.boy;
+  if (m) return { key: 'boy', A0: m.anchor, idle: 'boy-idle', fight: 'boy-fight', hand: [m.handIdle, m.handFight], walk: m.walk };
+  return { key: 'girl', A0: A.man.meta.girlAnchor, idle: 'girl-idle', fight: 'girl-fight', hand: [HAND_IDLE, HAND_FIGHT], walk: null };
+}
+function charKey(c) { return (c === 'boy' || c === 'b') && A.man.meta.boy ? 'boy' : 'girl'; }
+function charAssets(c) { return charKey(c) === 'boy' ? ['img:boy-idle', 'img:boy-fight', 'img:boy-walk'] : ['img:girl-idle', 'img:girl-fight']; }
+// o: {x, feet, sc, fight, walk: {dir, ph}} ; x = body centre on screen. Returns the rod hand on screen.
+function charHand(c, o) {
+  const ci = charInfo(c), sc = o.sc ?? 1;
+  if (o.walk && o.walk.dir) {
+    const ph = o.walk.ph;
+    if (ci.walk && A.tex['img:boy-walk']) { const W = ci.walk, i = Math.floor(ph * W.n) % W.n, hh = W.hands[i]; return [o.x + (o.walk.dir > 0 ? -1 : 1) * (hh[0] - W.cx) * sc, o.feet - (W.fh - hh[1]) * sc]; }
+    const bob = -Math.abs(Math.sin(ph * Math.PI * 2)) * 7 * sc, h = ci.hand[0];
+    return [o.x + (h[0] - BODY[0]) * sc, o.feet + (h[1] - BODY[1]) * sc + bob];
+  }
+  const h = ci.hand[o.fight ? 1 : 0];
+  return [o.x + (h[0] - BODY[0]) * sc, o.feet + (h[1] - BODY[1]) * sc];
+}
+function drawChar(c, o) {
+  const ci = charInfo(c), sc = o.sc ?? 1, A0 = ci.A0;
+  img('girl-shadow', o.x - 112 * sc, o.feet - 46 * sc, { s: .9 * sc, a: .5 });
+  if (o.walk && o.walk.dir) {
+    const ph = o.walk.ph;
+    if (ci.walk && A.tex['img:boy-walk']) {
+      const W = ci.walk, i = Math.floor(ph * W.n) % W.n, t = A.tex['img:boy-walk'], sw = t.width / W.n;
+      ctx.save(); ctx.translate(o.x, o.feet); if (o.walk.dir > 0) ctx.scale(-1, 1);
+      ctx.drawImage(t, i * sw, 0, sw, t.height, -W.cx * sc, -W.fh * sc, W.fw * sc, W.fh * sc); ctx.restore();
+      return;
+    }
+    // the original art has no walk cycle: a stepping bob and sway
+    const bob = -Math.abs(Math.sin(ph * Math.PI * 2)) * 7 * sc, sway = Math.sin(ph * Math.PI * 2) * .025;
+    ctx.save(); ctx.translate(o.x, o.feet + bob); ctx.rotate(sway);
+    img(ci.idle, (A0.x - BODY[0]) * sc, (A0.y - BODY[1]) * sc, { w: A0.w * sc, h: A0.h * sc }); ctx.restore();
+    return;
+  }
+  const breath = 1 + Math.sin((o.t || 0) * 1.6) * .004;
+  ctx.save(); ctx.translate(o.x, o.feet); ctx.scale(sc, sc * breath);
+  img(o.fight ? ci.fight : ci.idle, A0.x - BODY[0], A0.y - BODY[1], { w: A0.w, h: A0.h });
+  ctx.restore();
+}
+// portrait in a circle (HUD)
+function drawHead(c, x, y, r) {
+  ctx.save(); ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.clip();
+  if (charKey(c) === 'boy' && A.tex['img:boy-head']) { ctx.fillStyle = '#8fc6d8'; ctx.fillRect(x - r, y - r, r * 2, r * 2); img('boy-head', x, y + r * .08, { w: r * 2.15, h: r * 2.15 * 260 / 230, ax: .5, ay: .45 }); }
+  else ui('fighting-top-UI/my-UI-head', x, y + r * .1, { ax: .5, ay: .5, s: r / 59 });
+  ctx.restore();
+}
 const JUMPERS = new Set(['bbass', 'peacock', 'culter', 'niloticus', 'tilapia', 'tinfoil', 'corvina']);
 
 const pond = {
@@ -1241,12 +1398,19 @@ const pond = {
   line: { L: 0, T: 0, Td: 0, brk: 0, slack: 0 },
   power: 1, reel: 0, pump: false, wheel: { ang: 0, last: null, hold: 0, spin: 0 },
   view: 'surface', camShake: 0, splashes: [], fx: [], lure: null, lastBiteAt: 0, banner: null, aimT: 0, charge: 0, charging: false,
+  wx: 0, camW: 0, follow: true, walk: { dir: 0, ph: 0 }, walkHeld: 0, pan: null, peerX: {}, peerPh: {},
 
   enter(p) {
     this.p = p; this.t = 0; this.setState('idle');
     this.bet = clamp(S.bet[p.id] ?? p.minBet, p.minBet, p.maxBet);
     this.shadows = []; this.fish = null; this.float = null; this.lure = null; this.splashes = []; this.fx = [];
     this.view = 'surface'; this.power = 1; this.drops = []; this.uv = null;
+    // pick a free spot on the dock, as close to the middle as possible
+    const taken = NET.pondPeers(p.id).map(pe => this.peerTarget(pe));
+    let best = 0;
+    for (let k = 0; k < 40; k++) { const c = (k % 2 ? 1 : -1) * Math.ceil(k / 2) * .35; if (c < DOCK[0] || c > DOCK[1]) continue; if (taken.every(x => Math.abs(x - c) > .85)) { best = c; break; } }
+    this.wx = best; this.camW = best; this.follow = true; this.walk = { dir: 0, ph: 0 }; this.peerX = {}; this.pan = null; this.autoTo = null;
+    CAMX = 0; water.cam = this.camW * 300;
     audio.ambience(.12);
     // a loose school of small fish cruising the shallows
     const small = Object.keys(p.fish).sort((a, b) => FISH[a].max - FISH[b].max)[0];
@@ -1254,12 +1418,74 @@ const pond = {
     // pull in this pond's species art in the background
     const sp = Object.keys(p.fish);
     ensure(sp.flatMap(k => ['anim:fight-' + k, 'anim:land-' + k, 'anim:under-' + k]).concat(['anim:splash', 'anim:underwave', 'img:fight-bed', 'img:fight-surface', 'anim:angry', 'img:victory', 'img:victory-light']));
+    ensure(charAssets(S.char).concat(['img:boy-catch', 'img:boy-head']));
     ensure(sp.flatMap(k => ['anim:hang-' + k]).concat(['anim:catchgirl', 'anim:catchwater', 'anim:fireworks', 'img:catch-BG-sky', 'img:catch-BG-water', 'img:catch-BG-shore', 'img:catch-BG-boat', 'img:catch-BG-cloud1', 'img:catch-BG-cloud2', 'img:catch-UI-right-board', 'img:catch-UI-down-board', 'img:win-lightwheel', 'img:catch-win']));
     water.setScene(A.tex['img:' + p.bgKey + '-bg-water'], A.tex['img:' + p.bgKey + '-bg-top']);
     water.rip = [];
     glc.style.visibility = 'visible';
   },
-  exit() { glc.style.visibility = 'hidden'; audio.ambience(.05); NET.lastJson = ''; },
+  exit() { glc.style.visibility = 'hidden'; audio.ambience(.05); NET.lastJson = ''; CAMX = 0; water.cam = 0; this.walk.dir = 0; },
+  /* ----- the dock: other players, walking, camera ----- */
+  peerTarget(pe) {
+    const x = +pe.presence.x;
+    if (Number.isFinite(x)) return clamp(x, DOCK[0], DOCK[1]);
+    let h = 0; for (const ch of String(pe.peer)) h = (h * 31 + ch.charCodeAt(0)) | 0;   // older clients: a stable spot from the id
+    return DOCK[0] + .6 + (Math.abs(h) % 14) * .75;
+  },
+  dockPeers() {
+    return NET.pondPeers(this.p.id).map(pe => ({ pe, x: this.peerX[pe.peer] ?? this.peerTarget(pe) }));
+  },
+  updateDock(dt) {
+    const st = this.st;
+    let dir = 0;
+    if (st === 'idle' && ACTIVE_LAYER === 0) {
+      if (keys.ArrowLeft || keys.KeyA || this.walkHeld < 0) dir = -1;
+      if (keys.ArrowRight || keys.KeyD || this.walkHeld > 0) dir = 1;
+    }
+    const peers = this.dockPeers();
+    // two anglers on the same spot (both arrived at once): the one with the larger id steps aside
+    if (dir) this.autoTo = null;
+    else if (st === 'idle' && this.autoTo == null) {
+      this._sepT = (this._sepT || 0) - dt;
+      if (this._sepT <= 0) {
+        this._sepT = .8;
+        if (peers.some(q => Math.abs(q.x - this.wx) < .5 && String(NET.uid || 'me') > String(q.pe.peer))) {
+          for (let k = 1; k < 40; k++) { const c = this.wx + (k % 2 ? 1 : -1) * Math.ceil(k / 2) * .3; if (c >= DOCK[0] && c <= DOCK[1] && peers.every(q => Math.abs(q.x - c) > .85)) { this.autoTo = c; break; } }
+        }
+      }
+    }
+    if (this.autoTo != null && !dir) { if (st !== 'idle' || Math.abs(this.autoTo - this.wx) < .04) this.autoTo = null; else dir = Math.sign(this.autoTo - this.wx); }
+    if (dir) {
+      let nx = clamp(this.wx + dir * 1.25 * dt, DOCK[0], DOCK[1]);
+      if (this.autoTo != null && (nx - this.autoTo) * dir > 0) nx = this.autoTo;
+      for (const { x } of peers) if (Math.abs(nx - x) < .62 && Math.abs(x - this.wx) > .25 && Math.sign(x - this.wx) === dir) {
+        nx = this.wx; if (T - (this._bumpT || -9) > 2.5) { this._bumpT = T; say('前面有釣友，換個方向走吧'); }
+      }
+      if (nx === this.wx) dir = 0;
+      this.wx = nx; this.walk.ph = (this.walk.ph + dt * 1.25 / 1.15) % 1; this.follow = true;
+      if (T - (this._stepT || 0) > .43) { this._stepT = T; audio.tone(140 + rnd(30), .05, 'triangle', .05); }
+    }
+    this.walk.dir = dir;
+    // other players glide to where they report standing
+    for (const { pe } of peers) {
+      const tx = this.peerTarget(pe), cur = this.peerX[pe.peer];
+      this.peerX[pe.peer] = cur === undefined || Math.abs(cur - tx) > 3 ? tx : lerp(cur, tx, clamp(dt * 3.5, 0, 1));
+      if (+pe.presence.w) this.peerPh[pe.peer] = ((this.peerPh[pe.peer] || 0) + dt * 1.09) % 1;
+    }
+    // camera: follows me; drag the water to look along the dock
+    const lock = !['idle', 'wait', 'lure'].includes(st);
+    if (!lock && ACTIVE_LAYER === 0 && P.justDown && !P.cap && P.dy > 430 && P.dy < 940 && P.dx > 110 && P.dx < 600) { P.cap = 'pan'; this.pan = { x: P.x, cam: this.camW }; }
+    if (this.pan && P.cap === 'pan' && P.down) { this.camW = this.pan.cam - (P.x - this.pan.x) / 300; if (P.moved > 12) this.follow = false; }
+    if (P.cap !== 'pan') this.pan = null;
+    if (lock || dir || this.follow) this.camW = lerp(this.camW, this.wx, clamp(dt * (lock ? 5 : 3.5), 0, 1));
+    this.camW = clamp(this.camW, DOCK[0] - .3, DOCK[1] + .3);
+    CAMX = this.camW - this.wx; water.cam = this.camW * 300;
+  },
+  // a tile of a background, mirrored side by side so the pond goes on along the dock
+  tiled(key, y, h, shift, a) {
+    const m = A.man.img[key]; if (!m) return;
+    const w = LW; for (let i = Math.floor(shift / w); i * w - shift < LW; i++) img(key, Math.floor(i * w - shift), y, { w: w + 1, h, flip: (i & 1) !== 0, a });
+  },
   setState(s) { this.st = s; this.stT = 0; },
   rod() { return RODS[S.equip.rod]; },
   isLure() { return this.p.mode === 'lure'; },
@@ -1406,7 +1632,7 @@ const pond = {
     this.float = null; this.approach = null; this.lure = null;
     this.power = 1;
     this.setState('hookset');
-    this.view = 'under'; this.cine = 2.1; this.uv = null; // short underwater cut when the fish is hooked
+    this.view = 'under'; this.cine = 1.6; this.uv = null; this.sand = []; // the fight is shown under water (toggle 水上/水下)
     audio.splash(1);
   },
   updateFight(dt) {
@@ -1521,6 +1747,7 @@ const pond = {
 
   update(dt) {
     this.t += dt; this.stT += dt;
+    this.updateDock(dt);
     this.camShake = Math.max(0, this.camShake - dt);
     if (this.banner) { this.banner.t += dt; if (this.banner.t > 1.4) this.banner = null; }
     // ambient fish
@@ -1555,7 +1782,7 @@ const pond = {
     if (st === 'lure') this.updateLure(dt);
     if (st === 'hookset') {
       this.cine -= dt;
-      if (this.cine <= 0) { this.view = 'surface'; this.setState('fight'); }
+      if (this.cine <= 0) { this.view = S.uw === false ? 'surface' : 'under'; this.setState('fight'); }
       else this.updateFight(dt * .5);
     }
     if (st === 'fight') this.updateFight(dt);
@@ -1574,9 +1801,9 @@ const pond = {
     this.fish = null; this.setState('idle');
     go(catchScene, result);
   },
-  addSplash(x, y, s, a = 1) { this.splashes.push({ x, y, s, a, t: 0 }); },
+  addSplash(x, y, s, a = 1) { this.splashes.push({ x: x + water.cam * depthF(y), y, s, a, t: 0 }); },
   spray(x, y, n, k = 1) { // water droplets thrown up by a splash
-    for (let i = 0; i < n; i++) { const a = -Math.PI / 2 + rnd(-1.1, 1.1); const v = rnd(160, 520) * k * .5; this.drops.push({ x: x + rnd(-6, 6) * k, y, vx: Math.cos(a) * v * .7, vy: Math.sin(a) * v, r: rnd(1, 3) * k * .6, t: 0, floor: y + rnd(-2, 6) }); }
+    for (let i = 0; i < n; i++) { const a = -Math.PI / 2 + rnd(-1.1, 1.1); const v = rnd(160, 520) * k * .5; this.drops.push({ x: x + rnd(-6, 6) * k, y, vx: Math.cos(a) * v * .7, vy: Math.sin(a) * v, r: rnd(1, 3) * k * .6, t: 0, floor: y + rnd(-2, 6), cam: water.cam }); }
   },
 
   /* ----- drawing ----- */
@@ -1588,11 +1815,13 @@ const pond = {
     ctx.save(); ctx.translate(shake, 0);
     // water via WebGL underneath; if unavailable draw the plain texture
     const wrote = water.render(this.t, DTF, { sunX: 470 + Math.sin(this.t * .05) * 30, sun: .7, calm: this.st === 'fight' ? 1.15 : 1 });
-    if (!wrote) img(p.bgKey + '-bg-water', 0, WATER_Y, { w: LW, h: LH - WATER_Y });
-    // sky & far shore
-    img(p.bgKey + '-bg-top', 0, 0, { w: LW, h: 240 });
-    if (p.id === 1) ['pond-cloud1', 'pond-cloud2', 'pond-cloud3'].forEach((k, i) => { const x = ((this.t * (4 + i * 2) + i * 260) % 980) - 200; img(k, x, 8 + i * 22, { a: .9, s: .8 }); });
-    if (A.man.img[p.bgKey + '-fog']) img(p.bgKey + '-fog', 0, 120 + Math.sin(this.t * .2) * 6, { a: .35 + .1 * Math.sin(this.t * .3), w: LW });
+    const camPx = this.camW * 300;
+    if (!wrote) this.tiled(p.bgKey + '-bg-water', WATER_Y, LH - WATER_Y, camPx * .6);
+    // sky & far shore (far away: they slide only a little as the camera pans)
+    this.tiled(p.bgKey + '-bg-top', 0, 240, camPx * .1);
+    if (p.id === 1) ['pond-cloud1', 'pond-cloud2', 'pond-cloud3'].forEach((k, i) => { const x = ((((this.t * (4 + i * 2) + i * 260 - camPx * .05) % 980) + 980) % 980) - 200; img(k, x, 8 + i * 22, { a: .9, s: .8 }); });
+    const fogM = A.man.img[p.bgKey + '-fog'];
+    if (fogM) this.tiled(p.bgKey + '-fog', 120 + Math.sin(this.t * .2) * 6, fogM.h * LW / fogM.w, camPx * .1, .35 + .1 * Math.sin(this.t * .3));
     // atmospheric haze on the far water
     const hz = ctx.createLinearGradient(0, WATER_Y, 0, 460);
     hz.addColorStop(0, 'rgba(225,240,245,.28)'); hz.addColorStop(1, 'rgba(225,240,245,0)');
@@ -1600,24 +1829,26 @@ const pond = {
 
     if (!wrote) { ctx.save(); ctx.globalAlpha = .75; ctx.drawImage(UW, 0, WATER_Y, LW, LH - WATER_Y); ctx.restore(); }
     // splashes, spray and leaping fish above the surface
-    for (const s of this.splashes) frame('splash', s.t * 24, s.x, s.y + 10 * s.s, { s: s.s * .9, ax: .5, ay: .82, a: s.a * (1 - s.t / 1.3) });
+    for (const s of this.splashes) frame('splash', s.t * 24, s.x - water.cam * depthF(s.y), s.y + 10 * s.s, { s: s.s * .9, ax: .5, ay: .82, a: s.a * (1 - s.t / 1.3) });
     this.drawJump();
     if (this.drops.length) {
       ctx.save();
-      for (const d of this.drops) { ctx.globalAlpha = clamp(1 - d.t / 1.2, 0, .85); ctx.fillStyle = '#eafcff'; ctx.beginPath(); ctx.ellipse(d.x, d.y, d.r, d.r * 1.4, 0, 0, Math.PI * 2); ctx.fill(); }
+      for (const d of this.drops) { const dx = d.x - (water.cam - (d.cam || 0)) * depthF(d.floor); ctx.globalAlpha = clamp(1 - d.t / 1.2, 0, .85); ctx.fillStyle = '#eafcff'; ctx.beginPath(); ctx.ellipse(dx, d.y, d.r, d.r * 1.4, 0, 0, Math.PI * 2); ctx.fill(); }
       ctx.restore();
     }
     // float
     if (this.float && (this.st === 'wait')) this.drawFloat();
     // dock / foreground
     const wg = A.man.img[p.bgKey + '-wood-grass'];
-    if (wg) img(p.bgKey + '-wood-grass', 0, LH - wg.h, { w: LW });
+    if (wg) this.tiled(p.bgKey + '-wood-grass', LH - wg.h * LW / wg.w, wg.h * LW / wg.w, camPx);
     // landing fish swings in from the water behind the angler's shoulder
     if (this.st === 'land') this.drawLandingFish();
     // friends beside you, then you
     this.drawFriends();
     this.drawAngler();
-    { const A0 = A.man.meta.girlAnchor; this.drawBubble(NET.bubbles.me, A0.x + A0.w / 2, A0.y - 40); }
+    { const mx = BODY[0] - CAMX * 300, top = this.walk.dir ? 735 : 725;
+      if (this.dockPeers().length) this.nameTag(S.name, LV(), mx, top + 22, '#ffd76a', true);
+      if (NET.says.me) this.drawSay(NET.says.me, mx, top - 30); else this.drawBubble(NET.bubbles.me, mx, top - 30); }
     if (this.st === 'land') this.drawVictory();
     ctx.restore();
     // vignette for depth
@@ -1684,7 +1915,7 @@ const pond = {
     const rot = J.dir > 0 ? Math.atan2(vy, vx) : Math.atan2(vy, vx) - Math.PI;
     const a = clamp((J.y0 - y) / 14 + .35, 0, 1);
     // drips trailing off the body
-    if (Math.random() < .5) this.drops.push({ x: x + rnd(-10, 10) * s * 10, y, vx: rnd(-40, 40), vy: rnd(-60, 30), r: rnd(1, 2.4) * pt.f * 1.5, t: 0, floor: J.y0 });
+    if (Math.random() < .5) this.drops.push({ x: x + rnd(-10, 10) * s * 10, y, vx: rnd(-40, 40), vy: rnd(-60, 30), r: rnd(1, 2.4) * pt.f * 1.5, t: 0, floor: J.y0, cam: water.cam });
     frame('under-' + F.sp, F.anim * 1.6 % (n.swim || 23), x, y, { s, rot, flip: J.dir > 0, a, ax: .5, ay: .55 });
   },
   floatScreen() {
@@ -1710,10 +1941,12 @@ const pond = {
   },
   rodGeom() {
     const rod = this.rod();
-    const fightPose = ['cast', 'hookset', 'fight', 'land', 'lure'].includes(this.st);
-    const hand = fightPose ? HAND_FIGHT : HAND_IDLE;
+    const fightPose = FIGHT_ST.includes(this.st);
+    const walking = this.walk.dir !== 0;
+    const hand = charHand(S.char, { x: BODY[0] - CAMX * 300, feet: BODY[1], fight: fightPose, walk: walking ? this.walk : null });
     let ang, len = rod.len;
-    if (this.st === 'cast') {
+    if (walking) ang = -Math.PI * .5 + this.walk.dir * .42 + Math.sin(this.walk.ph * Math.PI * 4) * .03;
+    else if (this.st === 'cast') {
       const t = this.cast.t / this.cast.dur;
       // swing from over the shoulder (back) to forward
       const back = -Math.PI * .5 + .9, fwd = -Math.PI * .5 - .12;
@@ -1722,7 +1955,7 @@ const pond = {
       ang = -Math.PI * .5 + .08 - (this.pump ? .1 : 0);
     } else if (this.st === 'wait') ang = -Math.PI * .5 - .22;
     else ang = -Math.PI * .5 - .05 + Math.sin(this.t * 1.3) * .015;
-    const fore = this.st === 'wait' ? .82 : 1; // foreshortening when pointing at the water
+    const fore = this.st === 'wait' ? .82 : walking ? .9 : 1; // foreshortening when pointing at the water
     const tipStraight = [hand[0] + Math.cos(ang) * len * fore, hand[1] + Math.sin(ang) * len * fore];
     return { hand, ang, len: len * fore, tipStraight };
   },
@@ -1742,8 +1975,7 @@ const pond = {
     return null;
   },
   drawAngler() {
-    const A0 = A.man.meta.girlAnchor;
-    const fightPose = ['cast', 'hookset', 'fight', 'land', 'lure'].includes(this.st);
+    const fightPose = FIGHT_ST.includes(this.st);
     const g = this.rodGeom();
     const tgt = this.lineTarget();
     // bend toward the line, more with tension
@@ -1759,14 +1991,9 @@ const pond = {
       tip = [tip[0] + dx / d * bend, tip[1] + dy / d * bend * .9 + tension * 30];
     }
     if (this.st === 'cast') { /* whip already in angle */ }
-    // shadow
-    img('girl-shadow', A0.x + 25, A0.y + A0.h - 46, { s: .9, a: .5 });
-    // rod behind the girl when idle (in front when raised)
+    // rod behind the angler when idle or walking (in front when raised)
     if (!fightPose) this.drawRod(g.hand, tip, g.len, tension);
-    const breath = 1 + Math.sin(this.t * 1.6) * .004;
-    ctx.save(); ctx.translate(A0.x + A0.w / 2, A0.y + A0.h); ctx.scale(1, breath);
-    img(fightPose ? 'girl-fight' : 'girl-idle', -A0.w / 2, -A0.h, { w: A0.w, h: A0.h });
-    ctx.restore();
+    drawChar(S.char, { x: BODY[0] - CAMX * 300, feet: BODY[1], fight: fightPose, walk: this.walk.dir ? this.walk : null, t: this.t });
     if (fightPose) this.drawRod(g.hand, tip, g.len, tension);
     // fishing line
     if (tgt) this.drawLine(tip, tgt);
@@ -1833,68 +2060,129 @@ const pond = {
       if (!this._won) { this._won = true; audio.win(); }
     } else this._won = false;
   },
+  // The fight seen under water: a camera in the lake looking out from the dock, following the hooked fish.
   drawUnder() {
-    const F = this.fish, dt = DTF;
+    const F = this.fish, dt = DTF, t = this.t;
+    const U = this.uv || (this.uv = { x: 360, y: 600, face: F && Math.cos(F.h) < 0 ? -1 : 1, turn: -1, vy: 0, cam: F ? clamp(F.x, -6, 6) : 0 });
+    if (F) U.cam = lerp(U.cam, clamp(F.x, -6, 6), clamp(dt * 1.1, 0, 1));
+    const PX = 90, par = k => -U.cam * PX * k;          // parallax: far layers move less
+    if (!this.weeds) {
+      this.weeds = Array.from({ length: 34 }, (_, i) => ({ x: rnd(-1300, 1300), h: rnd(80, 280), w: rnd(7, 16), ph: rnd(6.28), near: i % 3 === 0, c: pick(['#1f4a2c', '#2a5a30', '#1a3f2a', '#35632f']) }));
+      this.rocks = Array.from({ length: 9 }, () => ({ x: rnd(-1300, 1300), r: rnd(30, 80), near: Math.random() < .4 }));
+    }
+    // water body
     const m = A.man.anim.underwave;
-    if (m) frame('underwave', this.t * 10, 360, 640, { s: 1.08, ax: .5, ay: .5 });
+    if (m) frame('underwave', t * 10, 360 + clamp(par(.15), -70, 70), 640, { s: 1.22, ax: .5, ay: .5 });
     else { ctx.fillStyle = '#0d4a3e'; ctx.fillRect(0, 0, LW, LH); }
-    img('fight-surface', -((this.t * 30) % 560), 0, { w: 1280 * 1.1, h: 160 });
-    img('fight-bed', 0, LH - 300, { w: LW, h: 300 });
-    // drifting caustic light
-    ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = .075;
-    const ox = (this.t * 18) % 256, oy = (this.t * 9) % 256;
-    for (let yy = -256; yy < LH; yy += 256) for (let xx = -256; xx < LW; xx += 256) ctx.drawImage(CAUSTIC, xx + ox, yy + oy, 256, 256);
-    ctx.globalAlpha = .05; const ox2 = (-this.t * 13) % 256;
-    for (let yy = -256; yy < LH; yy += 300) for (let xx = -256; xx < LW + 256; xx += 300) ctx.drawImage(CAUSTIC, xx + ox2, yy - oy, 300, 300);
-    ctx.restore();
+    const dg = ctx.createLinearGradient(0, 0, 0, LH);
+    dg.addColorStop(0, 'rgba(120,220,200,.18)'); dg.addColorStop(.35, 'rgba(10,80,70,0)'); dg.addColorStop(1, 'rgba(0,22,20,.55)');
+    ctx.fillStyle = dg; ctx.fillRect(0, 0, LW, LH);
+    // the surface seen from below (Snell's window brightening overhead)
+    const sw = ctx.createRadialGradient(360 + par(.3), -120, 40, 360 + par(.3), -120, 560);
+    sw.addColorStop(0, 'rgba(220,255,240,.45)'); sw.addColorStop(1, 'rgba(220,255,240,0)');
+    ctx.fillStyle = sw; ctx.fillRect(0, 0, LW, 520);
+    img('fight-surface', -((((t * 30 - par(.5)) % 560) + 560) % 560), 0, { w: 1280 * 1.1, h: 160 });
     // light shafts
     ctx.save(); ctx.globalCompositeOperation = 'lighter';
-    for (let i = 0; i < 5; i++) {
-      const x = 120 + i * 130 + Math.sin(this.t * .4 + i) * 40;
+    for (let i = 0; i < 6; i++) {
+      const x = ((i * 150 + par(.35) + Math.sin(t * .4 + i) * 40) % 900 + 900) % 900 - 90;
       const g = ctx.createLinearGradient(x, 0, x + 120, 900);
-      g.addColorStop(0, 'rgba(180,255,220,.15)'); g.addColorStop(1, 'rgba(180,255,220,0)');
+      g.addColorStop(0, `rgba(180,255,220,${.1 + .06 * Math.sin(t * .7 + i * 2)})`); g.addColorStop(1, 'rgba(180,255,220,0)');
       ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(x - 20, 0); ctx.lineTo(x + 40, 0); ctx.lineTo(x + 200, 1000); ctx.lineTo(x + 60, 1000); ctx.fill();
     }
     ctx.restore();
-    // suspended silt for depth
-    if (!this.silt) this.silt = Array.from({ length: 60 }, () => ({ x: rnd(LW), y: rnd(LH), z: rnd(.3, 1), p: rnd(6) }));
-    ctx.save(); ctx.fillStyle = '#d8fff0';
-    for (const p of this.silt) { p.x += Math.sin(this.t * .3 + p.p) * 6 * dt * p.z; p.y += 4 * dt * p.z; if (p.y > LH) p.y = 0; ctx.globalAlpha = .12 + p.z * .2; ctx.beginPath(); ctx.arc(p.x, p.y, p.z * 1.8, 0, Math.PI * 2); ctx.fill(); }
-    ctx.restore();
+    // far weeds and rocks (hazy)
+    const weed = (w, k, baseY, alpha) => {
+      const x = ((w.x + par(k) + 1400) % 2800 + 2800) % 2800 - 1400 + 360; if (x < -60 || x > LW + 60) return;
+      const sway = Math.sin(t * .9 + w.ph) * w.h * .16 + (F && F.run > 0 && Math.abs(x - U.x) < 220 ? Math.sin(t * 6 + w.ph) * 10 : 0);
+      ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = w.c;
+      ctx.beginPath(); ctx.moveTo(x - w.w / 2, baseY);
+      ctx.quadraticCurveTo(x - w.w * .3 + sway * .4, baseY - w.h * .55, x + sway, baseY - w.h);
+      ctx.quadraticCurveTo(x + w.w * .3 + sway * .45, baseY - w.h * .5, x + w.w / 2, baseY); ctx.fill(); ctx.restore();
+    };
+    for (const r of this.rocks) if (!r.near) { const x = ((r.x + par(.45) + 1400) % 2800 + 2800) % 2800 - 1400 + 360; ctx.save(); ctx.globalAlpha = .35; ctx.fillStyle = '#123b33'; ctx.beginPath(); ctx.ellipse(x, LH - 205, r.r * 1.4, r.r * .6, 0, Math.PI, 0); ctx.fill(); ctx.restore(); }
+    for (const w of this.weeds) if (!w.near) weed(w, .45, LH - 200, .38);
+    // lake bed
+    const bedShift = ((par(.7) % LW) + LW) % LW;
+    for (let i = -1; i <= 1; i++) img('fight-bed', bedShift + i * LW, LH - 300, { w: LW + 1, h: 300, flip: (i & 1) !== 0 });
+    // the hooked fish
     if (F) {
       const n = A.man.anim['under-' + F.sp];
-      const U = this.uv || (this.uv = { x: 360, y: 600, face: Math.cos(F.h) < 0 ? -1 : 1, turn: -1, vy: 0 });
-      const tx = 360 + clamp(F.x, -6, 6) * 42, ty = 380 + (F.depth ?? .5) * 470;
-      const py = U.y; U.x = lerp(U.x, tx, clamp(dt * 2.2, 0, 1)); U.y = lerp(U.y, ty, clamp(dt * 1.6, 0, 1)); U.vy = lerp(U.vy, (U.y - py) / Math.max(dt, .001), .1);
+      const L = Math.max(1, this.line.L);
+      let tx = 360 + (F.x - U.cam) * PX * 1.6, ty = 300 + (F.depth ?? .5) * 560;
+      if (F.jump) { const u = clamp(F.jump.t / F.jump.dur, 0, 1); ty = lerp(ty, -260, Math.sin(u * Math.PI)); if (!F.jump._b) { F.jump._b = 1; for (let i = 0; i < 22; i++) (this.bub || (this.bub = [])).push({ x: U.x + rnd(-60, 60), y: 160 + rnd(40), r: rnd(2, 7), v: rnd(40, 120), life: 0 }); } }
+      const py = U.y; U.x = lerp(U.x, tx, clamp(dt * 2.4, 0, 1)); U.y = lerp(U.y, ty, clamp(dt * (F.jump ? 5 : 1.8), 0, 1)); U.vy = lerp(U.vy, (U.y - py) / Math.max(dt, .001), .1);
       const want = Math.cos(F.h) < 0 ? -1 : 1;
-      if (U.turn < 0 && want !== U.face) U.turn = 0;               // start the turn-around clip
-      const s = clamp(.22 + F.size * .22 + F.len / 600, .22, .62);
-      const half = (n ? n.fw : 1300) * s * .5;
-      U.x = clamp(U.x, half * .8, LW - half * .8);
+      if (U.turn < 0 && want !== U.face) U.turn = 0;
+      // closer fish look bigger; far ones fade into the green
+      const near = clamp(1.9 / (.75 + L * .16), .55, 1.45);
+      const fw = n ? n.fw : 1300, fh = n ? n.fh : 650;
+      const s = Math.min(clamp(.2 + F.size * .2 + F.len / 650, .2, .58) * near, 560 / fw);
+      const haze = clamp((L - 3) / 16, 0, .5);
+      U.x = clamp(U.x, fw * s * .4, LW - fw * s * .4);
       const ret = n ? (n.ret || 0) : 0, swim = n ? (n.swim || 12) : 12;
       let fi, flip;
       if (U.turn >= 0 && ret) {
         U.turn += dt * 34;
-        const k = Math.min(ret - 1, Math.floor(U.turn));
-        fi = swim + (U.face < 0 ? k : k);                         // clip turns left->right; mirrored for right->left
-        flip = U.face > 0;
+        fi = swim + Math.min(ret - 1, Math.floor(U.turn)); flip = U.face > 0;
         if (U.turn >= ret) { U.turn = -1; U.face = want; }
       } else { fi = Math.floor(F.anim * .8) % swim; flip = U.face > 0; }
       const tilt = clamp(-U.vy / 600, -.35, .35) * (U.face > 0 ? 1 : -1);
-      const wob = Math.sin(this.t * 2.1) * 6;
-      if (n) frame('under-' + F.sp, fi, U.x, U.y + wob, { s, ax: .5, ay: .55, flip, rot: tilt });
-      // line to the mouth (mouth sits near the front of the frame)
-      const fw = n ? n.fw : 1300, fh = n ? n.fh : 650;
+      const wob = Math.sin(t * 2.1) * 6 + (F.run > 0 ? Math.sin(t * 23) * 3 : 0);
+      // its shadow on the bed
+      const bedY = LH - 170; const sd = clamp((bedY - U.y) / 600, 0, 1);
+      ctx.save(); ctx.globalAlpha = .28 * (1 - sd) * (1 - haze); ctx.fillStyle = '#04201a'; ctx.beginPath(); ctx.ellipse(U.x, bedY, fw * s * .32 * (1 + sd), 14 * (1 + sd), 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+      if (n) frame('under-' + F.sp, fi, U.x, U.y + wob, { s, ax: .5, ay: .55, flip, rot: tilt, a: 1 - haze });
+      // the mouth sits near the front of the frame; the line runs up to where it enters the water
       const mx = U.x + (flip ? 1 : -1) * (fw * .5 - 60) * s, my = U.y + wob + (400 - fh * .55) * s;
-      ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,.78)'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(260, 0); ctx.quadraticCurveTo(lerp(260, mx, .4), my * .35, mx, my); ctx.stroke(); ctx.restore();
-      // bubbles from the gills when it fights hard
+      const ex = 360 + par(1.6) * .55 + Math.sin(t * 1.3) * 6, ey = 138;
+      const T = this.line.Td, slack = 1 - clamp(this.line.T * 1.8, 0, 1);
+      const col = T > .85 ? `rgba(255,${90 + 60 * Math.sin(t * 20)},70,.95)` : T > .6 ? 'rgba(255,214,120,.9)' : 'rgba(240,255,255,.82)';
+      const vib = T > .55 ? (T - .55) * 9 : 0;
+      ctx.save(); ctx.strokeStyle = col; ctx.lineWidth = 1.6 + (T > .85 ? .8 : 0); ctx.beginPath();
+      const cxp = lerp(ex, mx, .5) + slack * 40, cyp = lerp(ey, my, .5) + slack * 120;
+      const nx = -(my - ey), ny = mx - ex, nl = Math.hypot(nx, ny) || 1;
+      for (let i = 0; i <= 20; i++) {
+        const u = i / 20, qx = (1 - u) * (1 - u) * ex + 2 * (1 - u) * u * cxp + u * u * mx, qy = (1 - u) * (1 - u) * ey + 2 * (1 - u) * u * cyp + u * u * my;
+        const w = Math.sin(u * Math.PI) * vib * Math.sin(t * 70 + u * 9);
+        i ? ctx.lineTo(qx + nx / nl * w, qy + ny / nl * w) : ctx.moveTo(qx, qy);
+      }
+      ctx.stroke(); ctx.restore();
+      // the line's dimple on the surface
+      ctx.save(); ctx.strokeStyle = 'rgba(230,255,250,.5)'; ctx.lineWidth = 1.5; for (let k = 0; k < 2; k++) { const r = ((t * 30 + k * 18) % 36); ctx.globalAlpha = .5 * (1 - r / 36); ctx.beginPath(); ctx.ellipse(ex, ey, 6 + r, 2 + r * .25, 0, 0, Math.PI * 2); ctx.stroke(); } ctx.restore();
+      // bubbles from the gills when it fights hard; sand kicked up near the bottom
       if (Math.random() < (F.run > 0 ? .35 : .08)) (this.bub || (this.bub = [])).push({ x: mx + rnd(-8, 8), y: my, r: rnd(2, 6), v: rnd(60, 140), life: 0 });
+      if (U.y > LH - 420 && F.run > 0 && Math.random() < .5) (this.sand || (this.sand = [])).push({ x: U.x + rnd(-fw * s * .3, fw * s * .3), y: bedY + rnd(-10, 10), r: rnd(10, 26), t: 0, vx: rnd(-30, 30) });
     }
+    // near rocks and weeds in front of the fish
+    for (const r of this.rocks) if (r.near) { const x = ((r.x + par(1.2) + 1400) % 2800 + 2800) % 2800 - 1400 + 360; ctx.save(); ctx.fillStyle = '#0b2a22'; ctx.globalAlpha = .9; ctx.beginPath(); ctx.ellipse(x, LH - 40, r.r * 1.8, r.r * .9, 0, Math.PI, 0); ctx.fill(); ctx.restore(); }
+    for (const w of this.weeds) if (w.near) weed(w, 1.2, LH - 30, .85);
+    // kicked-up sand and drifting silt
+    if (this.sand && this.sand.length) {
+      ctx.save();
+      for (const p of this.sand) { p.t += dt; p.x += p.vx * dt; p.y -= 14 * dt; p.r += 18 * dt; ctx.globalAlpha = .22 * (1 - p.t / 2.2); ctx.fillStyle = '#9a8a5c'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill(); }
+      ctx.restore(); this.sand = this.sand.filter(p => p.t < 2.2);
+    }
+    if (!this.silt) this.silt = Array.from({ length: 70 }, () => ({ x: rnd(LW), y: rnd(LH), z: rnd(.3, 1.3), p: rnd(6) }));
+    ctx.save(); ctx.fillStyle = '#d8fff0';
+    for (const p of this.silt) {
+      p.x += Math.sin(t * .3 + p.p) * 6 * dt * p.z; p.y += 4 * dt * p.z; if (p.y > LH) p.y = 0;
+      const x = ((p.x + par(p.z) * .6) % LW + LW) % LW;
+      ctx.globalAlpha = .1 + p.z * .16; ctx.beginPath(); ctx.arc(x, p.y, p.z * 1.8, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.restore();
+    // caustic light dancing over everything
+    ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = .07;
+    const ox = (t * 18 + par(.6)) % 256, oy = (t * 9) % 256;
+    for (let yy = -256; yy < LH; yy += 256) for (let xx = -512; xx < LW + 256; xx += 256) ctx.drawImage(CAUSTIC, xx + ox, yy + oy, 256, 256);
+    ctx.globalAlpha = .045; const ox2 = (-t * 13 + par(.6)) % 300;
+    for (let yy = -300; yy < LH; yy += 300) for (let xx = -600; xx < LW + 300; xx += 300) ctx.drawImage(CAUSTIC, xx + ox2, yy - oy, 300, 300);
+    ctx.restore();
     if (!this.bub) this.bub = [];
-    if (this.bub.length < 16 && Math.random() < .2) this.bub.push({ x: rnd(LW), y: LH + 10, r: rnd(2, 6), v: rnd(30, 80), life: 0 });
-    ctx.save(); ctx.strokeStyle = 'rgba(220,255,250,.6)'; ctx.lineWidth = 1.4;
-    for (const b of this.bub) { b.y -= b.v * dt; b.x += Math.sin(this.t * 3 + b.r) * .5; b.life += dt; ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.stroke(); }
-    this.bub = this.bub.filter(b => b.y > 150);
+    if (this.bub.length < 18 && Math.random() < .2) this.bub.push({ x: rnd(LW), y: LH + 10, r: rnd(2, 6), v: rnd(30, 80), life: 0 });
+    ctx.save(); ctx.lineWidth = 1.4;
+    for (const b of this.bub) { b.y -= b.v * dt; b.x += Math.sin(t * 3 + b.r) * .5; b.life += dt; ctx.strokeStyle = 'rgba(220,255,250,.6)'; ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.stroke(); ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.beginPath(); ctx.arc(b.x - b.r * .35, b.y - b.r * .35, b.r * .25, 0, Math.PI * 2); ctx.fill(); }
+    this.bub = this.bub.filter(b => b.y > 130);
     ctx.restore();
     const vg = ctx.createRadialGradient(360, 640, 200, 360, 640, 820);
     vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,25,20,.6)');
@@ -1905,52 +2193,77 @@ const pond = {
     }
     this.drawHUD();
   },
-  // Friends fishing in this pond stand beside you on the dock.
-  friendSeats() {
-    const list = NET.pondPeers(this.p.id).slice(0, 2);
-    const seats = [-232, 232];
-    return list.map((pe, i) => ({ pe, dx: seats[i], m: seats[i] / 300 }));
-  },
+  // Everyone fishing in this pond stands somewhere along the dock; their float / fish are relative to their spot.
   friendRipples(dt) {
     this._fr = (this._fr || 0) - dt; if (this._fr > 0) return; this._fr = .35;
-    for (const { pe, m } of this.friendSeats()) {
+    for (const { pe, x } of this.dockPeers()) {
       const h = pe.presence.h; if (!Array.isArray(h)) continue;
-      const pt = proj((+h[0] || 0) + m, +h[1] || 6); water.ripple(pt.x, pt.y, .5); if (Math.random() < .3) this.addSplash(pt.x, pt.y, pt.f, .5);
+      const pt = proj((+h[0] || 0) + x - this.wx, +h[1] || 6); if (pt.x < -100 || pt.x > LW + 100) continue;
+      water.ripple(pt.x, pt.y, .5); if (Math.random() < .3) this.addSplash(pt.x, pt.y, pt.f, .5);
     }
   },
   drawFriends() {
-    const A0 = A.man.meta.girlAnchor, sc = .8;
-    for (const { pe, dx, m } of this.friendSeats()) {
-      const pr = pe.presence; const fightPose = ['cast', 'hookset', 'fight', 'land', 'lure'].includes(pr.st);
-      const cx = A0.x + A0.w / 2 + dx, feet = A0.y + A0.h;
-      const hand0 = fightPose ? HAND_FIGHT : HAND_IDLE;
-      const hand = [cx + (hand0[0] - (A0.x + A0.w / 2)) * sc, feet - (feet - hand0[1]) * sc];
+    const sc = .86, list = this.dockPeers().sort((a, b) => Math.abs(b.x - this.wx) - Math.abs(a.x - this.wx));
+    this.tags = [];
+    for (const { pe, x } of list) {
+      const pr = pe.presence; const fightPose = FIGHT_ST.includes(pr.st);
+      const m = x - this.wx;                                   // their spot, relative to mine
+      const cx = BODY[0] + (m - CAMX) * 300, feet = BODY[1] - 8;
+      if (cx < -260 || cx > LW + 260) continue;
+      const walk = +pr.w && pr.st === 'idle' ? { dir: +pr.w > 0 ? 1 : -1, ph: this.peerPh[pe.peer] || 0 } : null;
+      const c = pr.c === 'b' ? 'boy' : 'girl';
+      if (c === 'boy' && !A.tex['img:boy-idle']) ensure(charAssets('boy'));
+      const hand = charHand(c, { x: cx, feet, sc, fight: fightPose, walk });
       let tgt = null, tension = .05;
       if (Array.isArray(pr.f)) { const pt = proj((+pr.f[0] || 0) + m, +pr.f[1] || 6); tgt = [pt.x, pt.y - 4 * pt.f, pt.f, pr.f[2]]; }
       if (Array.isArray(pr.h)) { const pt = proj((+pr.h[0] || 0) + m, +pr.h[1] || 6); tgt = [pt.x, pt.y, pt.f, 3]; tension = clamp(+pr.T || .4, 0, 1.2); }
-      const ang = fightPose ? -Math.PI * .5 + .08 : -Math.PI * .5 - (tgt ? .22 : .05);
-      const len = 300 * sc * (tgt && !fightPose ? .82 : 1);
+      const ang = walk ? -Math.PI * .5 + walk.dir * .42 : fightPose ? -Math.PI * .5 + .08 : -Math.PI * .5 - (tgt ? .22 : .05);
+      const len = 300 * sc * (tgt && !fightPose ? .82 : walk ? .9 : 1);
       let tip = [hand[0] + Math.cos(ang) * len, hand[1] + Math.sin(ang) * len];
       if (tgt) { const ddx = tgt[0] - tip[0], ddy = tgt[1] - tip[1], d = Math.hypot(ddx, ddy) || 1; const b = tension * .3 * len; tip = [tip[0] + ddx / d * b, tip[1] + ddy / d * b * .9 + tension * 24]; }
       if (tgt && tgt[3] !== 3 && tgt[3] !== 2) { // their float
         const spr = 'fishing/float-ball'; const sz = uiSize(spr); const s = tgt[2] * 1.5;
         const sink = tgt[3] === 1 ? .7 : 0;
         ctx.save(); ctx.beginPath(); ctx.rect(tgt[0] - 30, tgt[1] - 200, 60, 200 + 4); ctx.clip();
-        ui(spr, tgt[0], tgt[1] + 4 - sz.h * s * (.62 - sink * .6) + Math.sin(this.t * 2.2 + dx) * 1.5 * tgt[2], { s, ax: .5, ay: 0 }); ctx.restore();
+        ui(spr, tgt[0], tgt[1] + 4 - sz.h * s * (.62 - sink * .6) + Math.sin(this.t * 2.2 + x) * 1.5 * tgt[2], { s, ax: .5, ay: 0 }); ctx.restore();
       }
-      img('girl-shadow', cx - A0.w / 2 * sc + 20, feet - 40, { s: .72, a: .45 });
       if (!fightPose) this.drawRod(hand, tip, len, tension);
-      ctx.save(); ctx.translate(cx, feet); ctx.scale(sc, sc * (1 + Math.sin(this.t * 1.6 + dx) * .004));
-      img(fightPose ? 'girl-fight' : 'girl-idle', -A0.w / 2, -A0.h, { w: A0.w, h: A0.h }); ctx.restore();
+      drawChar(c, { x: cx, feet, sc, fight: fightPose, walk, t: this.t + x });
       if (fightPose) this.drawRod(hand, tip, len, tension);
       if (tgt) this.drawLine(tip, { x: tgt[0], y: tgt[1], slack: tgt[3] === 3 ? 1 - clamp(tension * 1.8, 0, 1) : .25 });
-      // name tag
-      const nm = NET.nameOf(pe), ty = feet - A0.h * sc - 26;
-      ctx.font = '900 20px "Noto Sans TC",sans-serif'; const w = ctx.measureText(nm).width + 64;
-      ctx.save(); roundRect(cx - w / 2, ty - 18, w, 36, 18); ctx.fillStyle = 'rgba(4,36,50,.78)'; ctx.fill(); ctx.restore();
-      text(`${nm} Lv.${pr.lv | 0}`, cx, ty + 1, { size: 20, weight: 900, align: 'center', color: Array.isArray(pr.h) ? '#ffd76a' : '#e9fffb' });
-      this.drawBubble(NET.bubbles[pe.peer], cx, ty - 46);
+      const ty = feet - 500 * sc - 6;
+      const friend = !!NET.friends[pe.peer];
+      const r = this.nameTag(NET.nameOf(pe), pr.lv, cx, ty, Array.isArray(pr.h) ? '#ffd76a' : friend ? '#9dffb0' : '#e9fffb');
+      this.tags.push({ r, pe });
+      if (NET.says[pe.peer]) this.drawSay(NET.says[pe.peer], cx, ty - 50); else this.drawBubble(NET.bubbles[pe.peer], cx, ty - 46);
     }
+    // tap a name tag (or the angler) to see the player card
+    if (ACTIVE_LAYER === 0 && P.justUp && P.moved < 14) {
+      for (const { r, pe } of this.tags) if (inR(P.ux, P.uy, { x: r.x - 20, y: r.y - 10, w: r.w + 40, h: 380 })) { openModal(playerCard(pe)); break; }
+    }
+  },
+  nameTag(nm, lv, cx, ty, color, me) {
+    const label = `${me ? '★ ' : ''}${nm} Lv.${lv | 0}`;
+    ctx.font = '900 20px "Noto Sans TC",sans-serif'; const w = ctx.measureText(label).width + 30;
+    ctx.save(); roundRect(cx - w / 2, ty - 18, w, 36, 18); ctx.fillStyle = me ? 'rgba(70,40,4,.78)' : 'rgba(4,36,50,.78)'; ctx.fill(); ctx.restore();
+    text(label, cx, ty + 1, { size: 20, weight: 900, align: 'center', color });
+    return { x: cx - w / 2, y: ty - 18, w, h: 36 };
+  },
+  drawSay(b, x, y) {
+    if (!b) return;
+    const a = clamp(Math.min(b.t / .2, (6 - b.t) / .5), 0, 1), k = easeBack(clamp(b.t / .3, 0, 1));
+    ctx.font = '700 22px "Noto Sans TC",sans-serif';
+    // up to two lines of about 11 characters
+    const lines = []; let line = '';
+    for (const ch of b.m) { if (ctx.measureText(line + ch).width > 250) { lines.push(line); line = ch; if (lines.length === 2) break; } else line += ch; }
+    if (lines.length < 2 && line) lines.push(line); else if (lines.length === 2 && line) lines[1] = lines[1].slice(0, -1) + '…';
+    const w = Math.max(80, ...lines.map(l => ctx.measureText(l).width)) + 34, h = lines.length * 28 + 20;
+    x = clamp(x, w / 2 + 6, LW - w / 2 - 6);
+    ctx.save(); ctx.globalAlpha = a; ctx.translate(x, y); ctx.scale(k, k);
+    roundRect(-w / 2, -h, w, h, 18); ctx.fillStyle = '#ffffff'; ctx.fill(); ctx.lineWidth = 2.5; ctx.strokeStyle = '#3c8fb0'; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-9, -1); ctx.lineTo(0, 14); ctx.lineTo(9, -1); ctx.fill();
+    ctx.restore();
+    lines.forEach((l, i) => text(l, x, y - h + 24 + i * 28, { size: 22, weight: 700, align: 'center', color: '#123', a }));
   },
   drawBubble(b, x, y) {
     if (!b) return; const em = EMOTES[b.e]; if (!em) return;
@@ -1961,12 +2274,48 @@ const pond = {
     ctx.restore();
     text(`${em[0]} ${em[1]}`, x, y - 2, { size: 26, weight: 900, align: 'center', color: '#3a1a06', a });
   },
+  // dock map, walk arrows, back-to-me and chat
+  drawDockUI() {
+    const st = this.st;
+    // dock map: everyone's spot, my spot, and what the camera sees
+    const mx0 = 150, mw = 340, my = 214;
+    const X = wx => mx0 + (wx - DOCK[0]) / (DOCK[1] - DOCK[0]) * mw;
+    const mr = { x: mx0 - 14, y: my - 18, w: mw + 28, h: 36 };
+    ctx.save(); roundRect(mr.x, mr.y, mr.w, mr.h, 18); ctx.fillStyle = 'rgba(4,34,46,.62)'; ctx.fill();
+    ctx.fillStyle = 'rgba(190,140,80,.85)'; ctx.fillRect(mx0, my - 3, mw, 6);
+    const vw = LW / 300 / (DOCK[1] - DOCK[0]) * mw;
+    roundRect(X(this.camW) - vw / 2, my - 13, vw, 26, 8); ctx.strokeStyle = 'rgba(255,255,255,.7)'; ctx.lineWidth = 2; ctx.stroke();
+    for (const { pe, x } of this.dockPeers()) { ctx.fillStyle = NET.friends[pe.peer] ? '#7dff9a' : '#e9fffb'; ctx.beginPath(); ctx.arc(X(x), my, 6, 0, Math.PI * 2); ctx.fill(); }
+    ctx.fillStyle = '#ffd24a'; ctx.beginPath(); ctx.arc(X(this.wx), my, 8, 0, Math.PI * 2); ctx.fill(); ctx.strokeStyle = '#5a3a00'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.restore();
+    const mh = hit('dockmap', mr);
+    if (mh.held && ['idle', 'wait', 'lure'].includes(st)) { this.camW = DOCK[0] + clamp((P.x - mx0) / mw, 0, 1) * (DOCK[1] - DOCK[0]); this.follow = false; }
+    const n = this.dockPeers().length;
+    text(n ? `碼頭上還有 ${n} 位釣友・拖曳水面看看` : '拖曳水面可以沿著碼頭看', 320, my + 34, { size: 17, weight: 700, align: 'center', color: 'rgba(235,255,255,.85)', stroke: 'rgba(0,30,40,.6)', sw: 4 });
+    if (Math.abs(this.camW - this.wx) > .35 && !this.follow) {
+      if (textBtn('backme', '回到自己', 360, 290, 160, 46, { size: 22, colors: ['#ffd76a', '#e09a1a'], edge: '#7a4a00' }).click) this.follow = true;
+    }
+    // walk along the dock to change spots (only while the line is in)
+    this.walkHeld = 0;
+    if (st === 'idle') {
+      const arrow = (id, x, dir) => {
+        const r = { x: x - 44, y: 960, w: 88, h: 88 }, h = hit(id, r);
+        ctx.save(); ctx.beginPath(); ctx.arc(x, 1004, 40, 0, Math.PI * 2); ctx.fillStyle = h.held ? 'rgba(255,214,90,.92)' : 'rgba(4,40,60,.6)'; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#d8f6ff'; ctx.stroke();
+        ctx.fillStyle = h.held ? '#4a2a00' : '#fff'; ctx.beginPath(); ctx.moveTo(x + dir * 16, 1004); ctx.lineTo(x - dir * 10, 988); ctx.lineTo(x - dir * 10, 1020); ctx.closePath(); ctx.fill(); ctx.restore();
+        if (h.held || (P.cap === id && P.down)) this.walkHeld = dir;
+      };
+      arrow('walkL', 58, -1); arrow('walkR', 662, 1);
+      text('走動', 58, 1060, { size: 18, weight: 900, align: 'center', color: '#fff', stroke: '#063247', sw: 4 });
+      text('走動', 662, 1060, { size: 18, weight: 900, align: 'center', color: '#fff', stroke: '#063247', sw: 4 });
+    }
+    chatButton(566, 222);
+  },
   drawEmoteBar() {
     if (!NET.room || !NET.canEmit) return;
     const eb = { x: 640, y: 222, w: 64, h: 64 };
     const h = hit('emote', eb);
     ctx.save(); roundRect(eb.x, eb.y, eb.w, eb.h, 20); ctx.fillStyle = this.emoteOpen ? 'rgba(255,214,90,.9)' : 'rgba(4,40,60,.6)'; ctx.fill(); ctx.restore();
-    text('💬', eb.x + 32, eb.y + 34, { size: 30, align: 'center' });
+    text('😊', eb.x + 32, eb.y + 30, { size: 30, align: 'center' }); text('表情', eb.x + 32, eb.y + 56, { size: 14, weight: 900, align: 'center', color: '#fff' });
     if (h.click) this.emoteOpen = !this.emoteOpen;
     if (!this.emoteOpen) return;
     EMOTES.forEach(([e, label], i) => {
@@ -1999,7 +2348,7 @@ const pond = {
     }
     // right column tackle slots
     if (!fighting && st !== 'land') this.drawTackleColumn();
-    if (this.view === 'surface' && st !== 'land') this.drawEmoteBar();
+    if (this.view === 'surface' && st !== 'land') { this.drawEmoteBar(); this.drawDockUI(); }
     // bottom controls per state
     const by = 1200;
     if (st === 'idle') {
@@ -2046,8 +2395,8 @@ const pond = {
       const ub = { x: 600, y: by - 130, w: 104, h: 104 };
       const uh = hit('under', ub);
       ctx.save(); roundRect(ub.x, ub.y, ub.w, ub.h, 26); ctx.fillStyle = this.view === 'under' ? 'rgba(80,200,255,.75)' : 'rgba(5,40,60,.62)'; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#bff3ff'; ctx.stroke(); ctx.restore();
-      drawEye(ub.x + 52, ub.y + 44); text('水下', ub.x + 52, ub.y + 84, { size: 20, align: 'center', weight: 900, color: '#fff' });
-      if (uh.click && st === 'fight') this.view = this.view === 'under' ? 'surface' : 'under';
+      drawEye(ub.x + 52, ub.y + 44); text(this.view === 'under' ? '看水面' : '看水下', ub.x + 52, ub.y + 84, { size: 20, align: 'center', weight: 900, color: '#fff' });
+      if (uh.click && st === 'fight') { this.view = this.view === 'under' ? 'surface' : 'under'; S.uw = this.view === 'under'; save(); }
     }
   },
   drawTackleColumn() {
@@ -2087,8 +2436,7 @@ const pond = {
     const F = this.fish;
     // left: angler
     ui('fighting-top-UI/head-base-UI', 6, 8, { s: .95 });
-    ctx.save(); ctx.beginPath(); ctx.arc(6 + 58, 8 + 58, 52, 0, Math.PI * 2); ctx.clip();
-    ui('fighting-top-UI/my-UI-head', 64, 70, { ax: .5, ay: .5, s: .92 }); ctx.restore();
+    drawHead(S.char, 64, 66, 52);
     const T = this.line.Td;
     const warn = T > .82;
     ui('fighting-top-UI/fish-UI-life_warring-base', 128, 44);
@@ -2156,16 +2504,21 @@ const catchScene = {
     // fireworks
     if (t < 4) for (let i = 0; i < 3; i++) frame('fireworks', t * 18 - i * 9, 120 + i * 170, 200 + (i % 2) * 70, { s: 1 });
     // girl holding the fish (the grip jaw is at (290,458) in the girl frame)
-    const m = A.man.anim.catchgirl;
+    const m = A.man.anim.catchgirl, boy = charKey(S.char) === 'boy' && A.tex['img:boy-catch'];
     const gx = -208;
-    if (m) {
+    let jaw = [gx + 290, 456];
+    if (boy) {
+      const bm = A.man.meta.boy, tip = [100, 470], bob = Math.sin(t * 1.6) * 2;
+      img('boy-catch', tip[0] - bm.catchTip[0], tip[1] - bm.catchTip[1] + bob, { w: bm.catchW, h: bm.catchH });
+      jaw = [tip[0], tip[1] + bob];
+    } else if (m) {
       const fi = Math.floor(t * 12) % m.n;
       frame('catchgirl', fi, gx + m.bx, m.by, { ax: 0, ay: 0 });
     }
     const hm = A.man.anim['hang-' + r.sp];
     if (hm) {
       const s = clamp(.42 + (r.len - FISH[r.sp].min) / (FISH[r.sp].max - FISH[r.sp].min) * .35 + (r.sp === 'giantgrouper' ? .2 : 0), .4, 1);
-      frame('hang-' + r.sp, t * 10, gx + 290, 456, { axp: hm.ax, ayp: hm.ay, s });
+      frame('hang-' + r.sp, t * 10, jaw[0], jaw[1], { axp: hm.ax, ayp: hm.ay, s });
     }
     // right board (fields are painted into the board art; values go inside them)
     const bx = 360, by = 120;
@@ -2257,7 +2610,7 @@ function pondBoard(p) {
 async function enterPond(p) {
   loading.show('前往' + p.name + '…');
   const sp = Object.keys(p.fish);
-  await ensureProgress([`img:${p.bgKey}-bg-water`, `img:${p.bgKey}-bg-top`, `img:${p.bgKey}-wood-grass`, 'img:girl-idle', 'img:girl-fight', 'img:girl-shadow', 'anim:splash',
+  await ensureProgress([`img:${p.bgKey}-bg-water`, `img:${p.bgKey}-bg-top`, `img:${p.bgKey}-wood-grass`, ...charAssets(S.char), 'img:girl-idle', 'img:girl-fight', 'img:girl-shadow', 'anim:splash',
     ...(p.id === 1 ? ['img:pond-cloud1', 'img:pond-cloud2', 'img:pond-cloud3'] : [`img:${p.bgKey}-fog`]), ...sp.map(k => 'anim:fight-' + k)], v => loading.p = v);
   loading.hide();
   go(pond, p);
@@ -2491,6 +2844,8 @@ function onlineModal() {
           const doing = pr.h ? '搏魚中！' : pr.f ? '等魚上鉤' : '';
           text(`Lv.${pr.lv | 0}・${where || '大廳'} ${doing}`, 116, y + 20, { size: 20, weight: 700, color: '#ffe0a8' });
           if (pe.guest) text('訪客', 470, y - 10, { size: 18, weight: 900, color: '#9fe6ff', align: 'right' });
+          if (NET.friends[pe.peer]) text('好友', 470, y + 20, { size: 18, weight: 900, color: '#9dffb0', align: 'right' });
+          if (hit('orow' + i, { x: 90, y: y - 38, w: 400, h: 76 }, 1).click) openModal(playerCard(pe));
           const pd = PONDS.find(x => x.id === pr.p);
           if (pd && LV() >= pd.lv) { const h = textBtn('go' + i, '前往', 560, y, 110, 52, { layer: 1, size: 22 }); if (h.click) { closeModal(m); enterPond(pd); } }
         });
@@ -2551,6 +2906,340 @@ function recordsModal() {
   };
   return m;
 }
+/* ---------------- character select ---------------- */
+function charModal() {
+  ensure(['img:boy-catch', 'img:boy-head', 'anim:catchgirl', ...charAssets('boy')]);
+  const m = {
+    sel: charKey(S.char),
+    draw() {
+      dim();
+      withPop(m, 360, 640, () => {
+        ui('lobby/pond-board/board', 360, 640, { ax: .5, ay: .5, s: 1 });
+        text('選擇角色', 360, 358, { size: 44, align: 'center', weight: 900, color: '#ffe36a', stroke: '#2f4d0c', sw: 8 });
+        [['girl', '女主角', 232], ['boy', '男主角', 488]].forEach(([k, label, x]) => {
+          const r = { x: x - 118, y: 400, w: 236, h: 380 }, on = m.sel === k;
+          ctx.save(); roundRect(r.x, r.y, r.w, r.h, 22); ctx.fillStyle = on ? 'rgba(255,236,150,.32)' : 'rgba(0,0,0,.18)'; ctx.fill();
+          ctx.lineWidth = on ? 6 : 2; ctx.strokeStyle = on ? '#ffe86a' : 'rgba(255,255,255,.3)'; ctx.stroke();
+          ctx.beginPath(); ctx.rect(r.x, r.y, r.w, r.h); ctx.clip();
+          if (k === 'girl') frame('catchgirl', 0, x - 8, r.y + 6, { ax: .5, ay: 0, s: .4 });
+          else if (A.man.meta.boy) img('boy-catch', x + 4, r.y + 12, { w: A.man.meta.boy.catchW * .4, h: A.man.meta.boy.catchH * .4, ax: .5, ay: 0 });
+          ctx.restore();
+          ctx.save(); roundRect(r.x + 30, r.y + r.h - 56, r.w - 60, 44, 22); ctx.fillStyle = 'rgba(40,20,4,.7)'; ctx.fill(); ctx.restore();
+          text(label, x, r.y + r.h - 34, { size: 28, weight: 900, align: 'center', color: on ? '#ffe86a' : '#fff' });
+          if (hit('ch' + k, r, 1).click) m.sel = k;
+        });
+        if (textBtn('chok', '確定', 360, 925, 220, 70, { layer: 1, size: 32 }).click) {
+          if (S.char !== m.sel) { S.char = m.sel; save(); NET.lastJson = ''; ensure(charAssets(S.char)); say(m.sel === 'boy' ? '換成男主角了！' : '換成女主角了！'); }
+          closeModal(m);
+        }
+      });
+      if (btn('chclose', 'button-close', 640, 352, { s: .8, layer: 1 }).click) closeModal(m);
+    },
+  };
+  return m;
+}
+
+/* ---------------- chat ---------------- */
+const chatIn = document.getElementById('chatIn'), fidIn = document.getElementById('fidIn');
+const FIELD_USE = { chatIn: false, fidIn: false };
+function chatButton(x, y, layer = 0) {
+  if (!NET.canChat()) return;
+  const r = { x: x - 32, y, w: 64, h: 64 };
+  const h = hit('chatbtn', r, layer);
+  ctx.save(); roundRect(r.x, r.y, r.w, r.h, 20); ctx.fillStyle = 'rgba(4,40,60,.6)'; ctx.fill(); ctx.restore();
+  text('💬', x, y + 30, { size: 30, align: 'center' });
+  text('聊天', x, y + 56, { size: 14, weight: 900, align: 'center', color: '#fff' });
+  if (NET.unread) { ctx.save(); ctx.fillStyle = '#ff4a3a'; ctx.beginPath(); ctx.arc(x + 26, y + 6, 13, 0, Math.PI * 2); ctx.fill(); ctx.restore(); text(String(Math.min(99, NET.unread)), x + 26, y + 7, { size: 15, weight: 900, align: 'center', color: '#fff' }); }
+  if (h.click) openModal(chatModal());
+}
+function wrapLines(str, maxW, font) {
+  ctx.font = font; const out = []; let line = '';
+  for (const ch of str) { if (ctx.measureText(line + ch).width > maxW && line) { out.push(line); line = ch; } else line += ch; }
+  if (line) out.push(line); return out;
+}
+function chatModal(room) {
+  const m = {
+    isChat: true, room: room || (scene === pond ? 'pond' : 'world'), opened: false,
+    draw() {
+      NET.unread = 0;
+      dim(.45);
+      const inPond = scene === pond && pond.p;
+      if (!inPond) m.room = 'world';
+      withPop(m, 360, 640, () => {
+        plainBoard();
+        ctx.save(); roundRect(260, 160, 200, 60, 14); ctx.fillStyle = '#6f7a1c'; ctx.fill(); ctx.restore();
+        text('聊天', 360, 190, { size: 36, align: 'center', weight: 900, color: '#ffe36a', stroke: '#2f3a06' });
+        const tabs = inPond ? [['pond', pond.p.name], ['world', '世界']] : [['world', '世界']];
+        tabs.forEach(([k, label], i) => {
+          const x = 360 + (i - (tabs.length - 1) / 2) * 200;
+          if (textBtn('ct' + k, label, x, 262, 180, 52, { layer: 1, size: 24, colors: m.room === k ? ['#ffd76a', '#e09a1a'] : ['#8fa4b4', '#4c6070'], edge: m.room === k ? '#7a4a00' : '#26343f' }).click) m.room = k;
+        });
+        // messages, newest at the bottom
+        const list = NET.chat[m.room] || [];
+        const font = '700 22px "Noto Sans TC",sans-serif';
+        let y = 868; const top = 304;
+        ctx.save(); roundRect(96, top - 6, 528, 590, 14); ctx.fillStyle = 'rgba(30,12,2,.28)'; ctx.fill(); ctx.clip();
+        for (let i = list.length - 1; i >= 0 && y > top; i--) {
+          const c = list[i]; const lines = wrapLines(c.m, 470, font);
+          const h = 30 + lines.length * 28;
+          y -= h;
+          const nameCol = c.me ? '#ffd76a' : NET.friends[c.uid] ? '#9dffb0' : '#9fe6ff';
+          text(c.n + (c.me ? '（你）' : ''), 116, y + 14, { size: 19, weight: 900, color: nameCol });
+          if (!c.me && c.uid && hit('cn' + i, { x: 106, y: y, w: 260, h: 28 }, 1).click && NET.mode === 'fire') openModal(playerCard({ peer: c.uid, presence: { n: c.n } }));
+          lines.forEach((l, j) => text(l, 130, y + 42 + j * 28, { size: 22, weight: 700, color: '#fff8ec' }));
+          y -= 6;
+        }
+        ctx.restore();
+        if (!list.length) text(m.room === 'pond' ? '同一個池的釣友會看到這裡的訊息' : '全服的釣友都會看到這裡的訊息', 360, 560, { size: 22, weight: 700, align: 'center', color: 'rgba(255,240,220,.8)' });
+        if (!NET.canChat()) text('目前沒有連線，無法聊天', 360, 960, { size: 22, weight: 900, align: 'center', color: '#fff' });
+        else if (textBtn('csend', '送出', 568, 958, 110, 56, { layer: 1, size: 26 }).click) m.send();
+      });
+      if (NET.canChat() && m.t > .2) { placeField(chatIn, 100, 932, 400, 54); FIELD_USE.chatIn = true; if (!m.opened) { m.opened = true; setTimeout(() => { try { chatIn.focus(); } catch (e) {} }, 30); } }
+      if (btn('cclose2', 'fishing/POP-catch/button-close', 672, 190, { s: .72, layer: 1 }).click) m.close();
+    },
+    async send() { const v = chatIn.value; if (await NET.sendChat(v, m.room)) chatIn.value = ''; },
+    close() { chatIn.blur(); closeModal(m); },
+  };
+  chatIn.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); const top = modals[modals.length - 1]; if (top && top.isChat) top.send(); } if (e.key === 'Escape') { const top = modals[modals.length - 1]; if (top && top.isChat) top.close(); } };
+  return m;
+}
+
+/* ---------------- friends & gifts (public website) ---------------- */
+const GIFT_LIMIT = 10;                // gifts a player can send per day
+function giftLabel(g) {
+  if (g.k === 'silver') return `${fmt(g.q)} 銀幣`;
+  if (g.k === 'gold') return `${fmt(g.q)} 金幣`;
+  if (g.k === 'bait') return `${g.id} ×${g.q}`;
+  const tbl = { rod: RODS, line: LINES, float: FLOATS }[g.k];
+  if (tbl) return tbl[g.id] ? tbl[g.id].name : '裝備';
+  if (g.k === 'lure') return g.id + '（假餌）';
+  return '禮物';
+}
+function applyGift(g) {
+  const q = Math.max(1, g.q | 0); let note = '';
+  const refund = price => { if (price[1] === 'g') { const v = Math.max(1, Math.round(price[0] * .5)); S.gold += v; return `（你已經有了，換成 ${v} 金幣）`; } const v = Math.round(price[0] * .5); S.silver += v; return `（你已經有了，換成 ${fmt(v)} 銀幣）`; };
+  if (g.k === 'silver') S.silver += Math.min(q, 1000);
+  else if (g.k === 'gold') S.gold += Math.min(q, 20);
+  else if (g.k === 'bait' && BAITS[g.id] && !BAITS[g.id].lure) S.bait[g.id] = (S.bait[g.id] || 0) + Math.min(q, 100);
+  else if (['rod', 'line', 'float'].includes(g.k) && ({ rod: RODS, line: LINES, float: FLOATS })[g.k][g.id]) {
+    if (S.owned[g.k].includes(g.id)) note = refund(({ rod: RODS, line: LINES, float: FLOATS })[g.k][g.id].price); else S.owned[g.k].push(g.id);
+  } else if (g.k === 'lure' && BAITS[g.id] && BAITS[g.id].lure) {
+    if (S.owned.lure.includes(g.id)) note = refund(BAITS[g.id].price); else S.owned.lure.push(g.id);
+  } else return null;
+  save();
+  return `🎁 ${cleanName(g.n, '釣友')} 送你「${giftLabel({ ...g, q })}」！${note}`;
+}
+function socialOk() {
+  if (NET.mode === 'fire' && FB.user) return true;
+  openModal(messageModal(NET.mode === 'fire' ? '請先登入。' : '好友與送禮只在網站版提供，請到遊戲網址登入後使用。', '好友'));
+  return false;
+}
+function onlineOf(uid) { return NET.mode === 'fire' ? FB.onlineMap[uid] : null; }
+function friendsModal(tab = 'list') {
+  const m = {
+    tab, off: 0, busy: false, msg: '',
+    async act(fn, done) { if (m.busy) return; m.busy = true; m.msg = ''; try { const r = await fn(); if (done) m.msg = done(r); } catch (e) { m.msg = '操作失敗，請稍後再試'; } m.busy = false; },
+    draw() {
+      dim();
+      withPop(m, 360, 640, () => {
+        plainBoard();
+        ctx.save(); roundRect(260, 160, 200, 60, 14); ctx.fillStyle = '#6f7a1c'; ctx.fill(); ctx.restore();
+        text('好友', 360, 190, { size: 36, align: 'center', weight: 900, color: '#ffe36a', stroke: '#2f3a06' });
+        const nReq = Object.keys(NET.requests).length;
+        [['list', '好友名單'], ['req', '好友邀請' + (nReq ? ` (${nReq})` : '')], ['add', '加好友']].forEach(([k, label], i) => {
+          if (textBtn('ft' + k, label, 175 + i * 185, 262, 172, 52, { layer: 1, size: 22, colors: m.tab === k ? ['#ffd76a', '#e09a1a'] : ['#8fa4b4', '#4c6070'], edge: m.tab === k ? '#7a4a00' : '#26343f' }).click) { m.tab = k; m.off = 0; m.msg = ''; }
+        });
+        const row = (y) => { ctx.save(); roundRect(96, y - 36, 528, 72, 14); ctx.fillStyle = 'rgba(255,240,210,.14)'; ctx.fill(); ctx.restore(); };
+        if (m.tab === 'list') {
+          const ids = Object.keys(NET.friends).sort((a, b) => (onlineOf(b) ? 1 : 0) - (onlineOf(a) ? 1 : 0));
+          if (!ids.length) wrapText('還沒有好友。到「加好友」輸入朋友的帳號，或在碼頭上點釣友的名字加好友。', 360, 420, 460, 40, { size: 24, align: 'center', color: '#ffeccc', weight: 700 });
+          ids.slice(m.off, m.off + 6).forEach((uid, i) => {
+            const y = 340 + i * 84, f = NET.friends[uid] || {}, on = onlineOf(uid);
+            row(y);
+            ctx.save(); ctx.fillStyle = on ? '#45e08a' : '#7d8a90'; ctx.beginPath(); ctx.arc(118, y, 8, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+            const name = cleanName(on ? on.n : f.n, '釣友');
+            text(name, 136, y - 12, { size: 24, weight: 900, color: '#fff' });
+            const pd = on && PONDS.find(x => x.id === on.p);
+            text(on ? `Lv.${on.lv | 0}・${pd ? pd.name : '大廳'}` : '離線', 136, y + 18, { size: 18, weight: 700, color: on ? '#ffe0a8' : 'rgba(255,255,255,.55)' });
+            if (hit('fr' + i, { x: 96, y: y - 36, w: 280, h: 72 }, 1).click) openModal(playerCard({ peer: uid, presence: { n: name, lv: on ? on.lv : 0, p: on ? on.p : 0 } }));
+            if (textBtn('fg' + i, '送禮', 470, y, 96, 50, { layer: 1, size: 22, colors: ['#ff9ad0', '#d0408a'], edge: '#6a1040' }).click) openModal(giftModal(uid, name));
+            if (pd && LV() >= pd.lv && textBtn('fgo' + i, '前往', 574, y, 90, 50, { layer: 1, size: 22 }).click) { closeModal(m); enterPond(pd); }
+          });
+          if (ids.length > 6) {
+            if (textBtn('fpp', '上一頁', 270, 860, 140, 48, { layer: 1, size: 20 }).click) m.off = Math.max(0, m.off - 6);
+            if (textBtn('fpn', '下一頁', 450, 860, 140, 48, { layer: 1, size: 20 }).click) m.off = Math.min(ids.length - 1, m.off + 6);
+          }
+          text(`好友 ${ids.length} 人・今天還能送 ${Math.max(0, GIFT_LIMIT - giftsToday())} 次禮`, 360, 930, { size: 22, weight: 900, align: 'center', color: '#fff' });
+        } else if (m.tab === 'req') {
+          const ids = Object.keys(NET.requests);
+          if (!ids.length) text('目前沒有好友邀請', 360, 440, { size: 24, align: 'center', color: '#ffeccc', weight: 700 });
+          ids.slice(0, 6).forEach((uid, i) => {
+            const y = 340 + i * 84, r = NET.requests[uid] || {}; row(y);
+            text(cleanName(r.n, '釣友'), 116, y - 10, { size: 24, weight: 900, color: '#fff' });
+            text('想加你為好友', 116, y + 20, { size: 18, weight: 700, color: '#ffe0a8' });
+            if (textBtn('fa' + i, '接受', 470, y, 96, 50, { layer: 1, size: 22, colors: ['#7fe08a', '#2b9a3c'], edge: '#145b20' }).click) m.act(() => FB.acceptFriend(uid, r.n), () => `已和 ${cleanName(r.n, '釣友')} 成為好友！`);
+            if (textBtn('fd' + i, '拒絕', 574, y, 90, 50, { layer: 1, size: 22, colors: ['#8fa4b4', '#4c6070'], edge: '#26343f' }).click) m.act(() => FB.declineFriend(uid));
+          });
+        } else {
+          text('用帳號加好友', 120, 330, { size: 24, weight: 900, color: '#ffe36a' });
+          if (textBtn('fsend', '送出邀請', 546, 382, 150, 54, { layer: 1, size: 22 }).click) m.byId();
+          text('（訪客沒有帳號，可以在碼頭或下方名單直接加）', 360, 432, { size: 17, weight: 700, align: 'center', color: 'rgba(255,240,220,.75)' });
+          text('線上釣友', 120, 480, { size: 24, weight: 900, color: '#ffe36a' });
+          const list = NET.others().filter(pe => !NET.friends[pe.peer]).slice(0, 5);
+          if (!list.length) text('現在沒有其他線上釣友', 360, 540, { size: 22, align: 'center', color: '#ffeccc', weight: 700 });
+          list.forEach((pe, i) => {
+            const y = 540 + i * 80; row(y);
+            text(NET.nameOf(pe), 116, y - 10, { size: 23, weight: 900, color: '#fff' });
+            text(`Lv.${pe.presence.lv | 0}${pe.guest ? '・訪客' : ''}`, 116, y + 18, { size: 18, weight: 700, color: '#ffe0a8' });
+            const sent = m.sent && m.sent[pe.peer];
+            if (textBtn('fadd' + i, sent ? '已邀請' : '加好友', 556, y, 120, 50, { layer: 1, size: 22, colors: sent ? ['#8fa4b4', '#4c6070'] : ['#5fd2ff', '#1576c8'], edge: sent ? '#26343f' : '#0a3e73' }).click && !sent)
+              m.act(() => FB.requestFriend(pe.peer, NET.nameOf(pe)), r => { (m.sent || (m.sent = {}))[pe.peer] = 1; return r === 'accepted' ? '已成為好友！' : '邀請已送出，等對方接受。'; });
+          });
+        }
+        if (m.msg) text(m.msg, 360, 990, { size: 22, weight: 900, align: 'center', color: '#fff', stroke: '#3a1a06', sw: 5 });
+      });
+      if (m.tab === 'add' && m.t > .2) { placeField(fidIn, 110, 356, 360, 52); FIELD_USE.fidIn = true; }
+      if (btn('fclose', 'fishing/POP-catch/button-close', 672, 190, { s: .72, layer: 1 }).click) closeModal(m);
+    },
+    byId() {
+      const id = fidIn.value.trim();
+      if (FB.checkId(id)) { m.msg = '請輸入正確的帳號（4–16 個英文、數字或底線）'; return; }
+      m.act(async () => {
+        const uid = await FB.findId(id);
+        if (!uid) return 'none';
+        if (uid === FB.user.uid) return 'self';
+        return FB.requestFriend(uid, id);
+      }, r => ({ none: '找不到這個帳號（對方需要用新版登入過一次）', self: '這是你自己的帳號喔', already: '你們已經是好友了', accepted: '已成為好友！', sent: '邀請已送出，等對方接受。' })[r] || '');
+      fidIn.value = '';
+    },
+  };
+  fidIn.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); m.byId(); } };
+  return m;
+}
+function giftsToday() { if (!S.gifts || S.gifts.date !== today()) S.gifts = { date: today(), n: 0 }; return S.gifts.n; }
+// A player's card: from the dock, the chat or the friend list
+function playerCard(pe) {
+  const uid = pe.peer;
+  const m = {
+    msg: '', busy: false,
+    draw() {
+      dim();
+      const pr = pe.presence || {}; const live = (NET.pondPeers(pr.p || 0).find(x => x.peer === uid) || {}).presence || onlineOf(uid) || {};
+      const name = cleanName(live.n || pr.n, '釣友'), lv = live.lv || pr.lv || 0, c = live.c || pr.c;
+      const friend = !!NET.friends[uid], blocked = !!S.blocked[uid];
+      withPop(m, 360, 640, () => {
+        ui('lobby/pond-board/board', 360, 640, { ax: .5, ay: .5, s: .9 });
+        text('釣友名片', 360, 382, { size: 40, align: 'center', weight: 900, color: '#ffe36a', stroke: '#2f4d0c', sw: 8 });
+        drawHead(c, 360, 495, 62);
+        ctx.save(); ctx.lineWidth = 4; ctx.strokeStyle = '#ffe9a6'; ctx.beginPath(); ctx.arc(360, 495, 62, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+        text(name, 360, 590, { size: 30, align: 'center', weight: 900, color: '#fff' });
+        const on = onlineOf(uid); const pd = on && PONDS.find(x => x.id === on.p);
+        text((lv ? `Lv.${lv | 0}・` : '') + (on ? (pd ? pd.name : '大廳') : NET.mode === 'fire' ? '離線' : ''), 360, 630, { size: 22, align: 'center', weight: 700, color: '#ffe0a8' });
+        let y = 700;
+        if (NET.mode === 'fire') {
+          if (friend) {
+            if (textBtn('pcg', '送禮', 260, y, 170, 60, { layer: 1, size: 26, colors: ['#ff9ad0', '#d0408a'], edge: '#6a1040' }).click) openModal(giftModal(uid, name));
+            if (textBtn('pcr', '刪除好友', 460, y, 170, 60, { layer: 1, size: 24, colors: ['#8fa4b4', '#4c6070'], edge: '#26343f' }).click) openModal(confirmModal(`確定要和 ${name} 解除好友嗎？`, () => FB.removeFriend(uid).catch(() => {})));
+          } else {
+            const sent = m.sent;
+            if (textBtn('pca', sent ? '已送出邀請' : '加好友', 360, y, 240, 60, { layer: 1, size: 26, colors: sent ? ['#8fa4b4', '#4c6070'] : ['#7fe08a', '#2b9a3c'], edge: sent ? '#26343f' : '#145b20' }).click && !sent && !m.busy) {
+              m.busy = true; FB.requestFriend(uid, name).then(r => { m.sent = true; m.msg = r === 'accepted' ? '已成為好友！' : r === 'already' ? '已經是好友了' : '邀請已送出'; }).catch(() => { m.msg = '送出失敗，請稍後再試'; }).finally(() => { m.busy = false; });
+            }
+          }
+          y += 84;
+        }
+        if (textBtn('pcb', blocked ? '解除封鎖' : '封鎖（不看他的訊息）', 420, y, 290, 54, { layer: 1, size: 22, colors: ['#ff8a7a', '#c0392b'], edge: '#6a140c' }).click) {
+          if (blocked) delete S.blocked[uid]; else { S.blocked[uid] = 1; for (const k of ['world', 'pond']) NET.chat[k] = NET.chat[k].filter(x => x.uid !== uid); }
+          save();
+        }
+        if (m.msg) text(m.msg, 360, 920, { size: 22, weight: 900, align: 'center', color: '#fff' });
+      });
+      if (btn('pcclose', 'button-close', 625, 370, { s: .75, layer: 1 }).click) closeModal(m);
+    },
+  };
+  return m;
+}
+function giftModal(uid, name) {
+  const m = {
+    tab: 'coin', sel: null, qty: 1, off: 0, busy: false, msg: '',
+    items() {
+      if (m.tab === 'coin') return [
+        { k: 'silver', icon: 'lobby/shop/icon-silver', label: '銀幣', have: S.silver, step: 100, max: Math.min(1000, S.silver) },
+        { k: 'gold', icon: 'lobby/shop/icon-gold', label: '金幣', have: S.gold, step: 1, max: Math.min(20, S.gold) }];
+      if (m.tab === 'bait') return Object.entries(S.bait).filter(([k, n]) => n > 0 && BAITS[k] && !BAITS[k].lure)
+        .map(([k, n]) => ({ k: 'bait', id: k, icon: 'tackle-icons/baits/' + k, label: k, have: n, step: 5, max: Math.min(100, n) }));
+      const out = [];
+      for (const k of S.owned.rod) if (S.equip.rod !== k) out.push({ k: 'rod', id: k, icon: 'tackle-icons/rods/' + k, label: RODS[k].name });
+      for (const k of S.owned.line) if (S.equip.line !== k) out.push({ k: 'line', id: k, icon: 'tackle-icons/lines/' + k, label: LINES[k].name });
+      for (const k of S.owned.float) if (S.equip.float !== k) out.push({ k: 'float', id: k, icon: 'tackle-icons/floats/' + k, label: FLOATS[k].name });
+      for (const k of S.owned.lure) if (S.equip.bait !== k) out.push({ k: 'lure', id: k, icon: 'tackle-icons/baits/' + k, label: k + '（假餌）' });
+      return out.map(o => ({ ...o, have: 1, step: 1, max: 1 }));
+    },
+    draw() {
+      dim();
+      withPop(m, 360, 640, () => {
+        plainBoard();
+        ctx.save(); roundRect(200, 160, 320, 60, 14); ctx.fillStyle = '#6f7a1c'; ctx.fill(); ctx.restore();
+        text('送禮給 ' + name, 360, 190, { size: 32, align: 'center', weight: 900, color: '#ffe36a', stroke: '#2f3a06' });
+        [['coin', '錢幣'], ['bait', '魚餌'], ['gear', '裝備']].forEach(([k, label], i) => {
+          if (textBtn('gt' + k, label, 175 + i * 185, 262, 160, 52, { layer: 1, size: 24, colors: m.tab === k ? ['#ffd76a', '#e09a1a'] : ['#8fa4b4', '#4c6070'], edge: m.tab === k ? '#7a4a00' : '#26343f' }).click) { m.tab = k; m.sel = null; m.off = 0; m.msg = ''; }
+        });
+        const its = m.items(), per = 8;
+        if (!its.length) wrapText(m.tab === 'gear' ? '沒有可以送的裝備（正在使用的裝備不能送）。' : '沒有可以送的魚餌。', 360, 420, 440, 38, { size: 23, align: 'center', color: '#ffeccc', weight: 700 });
+        for (let i = 0; i < per; i++) {
+          const it = its[m.off + i]; if (!it) break;
+          const x = 168 + (i % 4) * 128, y = 380 + Math.floor(i / 4) * 150;
+          const on = m.sel && m.sel.k === it.k && m.sel.id === it.id;
+          ctx.save(); roundRect(x - 56, y - 56, 112, 132, 16); ctx.fillStyle = on ? 'rgba(255,236,150,.35)' : 'rgba(255,240,210,.14)'; ctx.fill(); if (on) { ctx.lineWidth = 4; ctx.strokeStyle = '#ffe86a'; ctx.stroke(); } ctx.restore();
+          ui(it.icon, x, y - 4, { ax: .5, ay: .5, s: m.tab === 'coin' ? 1.1 : .9 });
+          text(m.tab === 'gear' ? '' : fmt(it.have), x, y + 58, { size: 18, weight: 900, align: 'center', color: '#fff', stroke: '#222', sw: 4 });
+          if (hit('gi' + i, { x: x - 56, y: y - 56, w: 112, h: 132 }, 1).click) { m.sel = it; m.qty = Math.min(it.max, it.step); m.msg = ''; }
+        }
+        if (its.length > per) {
+          if (textBtn('gpp', '◀', 120, 520, 56, 56, { layer: 1, size: 24 }).click) m.off = Math.max(0, m.off - per);
+          if (textBtn('gpn', '▶', 600, 520, 56, 56, { layer: 1, size: 24 }).click) m.off = m.off + per < its.length ? m.off + per : m.off;
+        }
+        const it = m.sel && its.find(x => x.k === m.sel.k && x.id === m.sel.id);
+        if (it) {
+          text(it.label, 360, 712, { size: 26, weight: 900, align: 'center', color: '#fff' });
+          if (it.max > 1) {
+            if (textBtn('gqm', '－', 250, 772, 64, 54, { layer: 1, size: 30 }).click) m.qty = Math.max(Math.min(it.step, it.max), m.qty - it.step);
+            text(fmt(m.qty), 360, 773, { size: 30, weight: 900, align: 'center', color: '#ffe9a6' });
+            if (textBtn('gqp', '＋', 470, 772, 64, 54, { layer: 1, size: 30 }).click) m.qty = Math.min(it.max, m.qty + it.step);
+          } else text('裝備送出後會從你的背包移除', 360, 772, { size: 20, weight: 700, align: 'center', color: '#ffe0a8' });
+        } else if (its.length) text('選一樣禮物', 360, 740, { size: 24, weight: 700, align: 'center', color: '#ffeccc' });
+        const left = GIFT_LIMIT - giftsToday();
+        text(`今天還能送 ${Math.max(0, left)} 次`, 360, 830, { size: 20, weight: 700, align: 'center', color: 'rgba(255,255,255,.8)' });
+        if (textBtn('gsend', m.busy ? '送出中…' : '送出禮物', 360, 905, 240, 66, { layer: 1, size: 28, colors: ['#ff9ad0', '#d0408a'], edge: '#6a1040' }).click) m.send(it, left);
+        if (m.msg) text(m.msg, 360, 990, { size: 22, weight: 900, align: 'center', color: '#fff', stroke: '#3a1a06', sw: 5 });
+      });
+      if (btn('gclose', 'fishing/POP-catch/button-close', 672, 190, { s: .72, layer: 1 }).click) closeModal(m);
+    },
+    async send(it, left) {
+      if (m.busy) return;
+      if (!it) { m.msg = '請先選一樣禮物'; return; }
+      if (left <= 0) { m.msg = '今天的送禮次數用完了，明天再來！'; return; }
+      if (!NET.friends[uid]) { m.msg = '只能送禮給好友'; return; }
+      const q = it.max > 1 ? m.qty : 1;
+      if (q <= 0 || q > it.max) { m.msg = '數量不足'; return; }
+      // take the gift out of the bag first; put it back if sending fails
+      const undo = () => {
+        if (it.k === 'silver') S.silver += q; else if (it.k === 'gold') S.gold += q; else if (it.k === 'bait') S.bait[it.id] = (S.bait[it.id] || 0) + q;
+        else if (it.k === 'lure') S.owned.lure.push(it.id); else S.owned[it.k].push(it.id);
+      };
+      if (it.k === 'silver') S.silver -= q; else if (it.k === 'gold') S.gold -= q; else if (it.k === 'bait') S.bait[it.id] -= q;
+      else { const arr = it.k === 'lure' ? S.owned.lure : S.owned[it.k]; const i = arr.indexOf(it.id); if (i < 0) { m.msg = '找不到這個裝備'; return; } arr.splice(i, 1); }
+      m.busy = true;
+      try {
+        await FB.sendGift(uid, { k: it.k, id: it.id || '', q });
+        giftsToday(); S.gifts.n++; save(); audio.coin();
+        m.msg = `已送出「${giftLabel({ k: it.k, id: it.id, q })}」！`; m.sel = null;
+      } catch (e) { undo(); save(); m.msg = '送出失敗（送太快或對方還不是好友），請稍後再試'; }
+      m.busy = false;
+    },
+  };
+  return m;
+}
 function missionsModal() {
   const goals = [['今天釣到 3 條魚', S.today.list.length, 3], ['今天釣到 10 條魚', S.today.list.length, 10], ['釣到 4 星以上的魚', S.today.list.filter(i => i.stars >= 4).length, 1], ['集滿 6 種魚', Object.keys(S.records).length, 6]];
   const msg = goals.map(([g, v, n]) => `${v >= n ? '✔' : '・'} ${g}（${Math.min(v, n)}/${n}）`).join('\n');
@@ -2578,7 +3267,10 @@ function loop(now) {
   if (scene && scene !== titleScene) NET.drawFeed();
   LAYER = 1;
   for (const m of modals) { m.t += dt; }
+  FIELD_USE.chatIn = FIELD_USE.fidIn = false;
   if (modals.length) modals[modals.length - 1].draw();
+  if (!FIELD_USE.chatIn && chatIn.style.display !== 'none') { chatIn.style.display = 'none'; chatIn.blur(); }
+  if (!FIELD_USE.fidIn && fidIn.style.display !== 'none') { fidIn.style.display = 'none'; fidIn.blur(); }
   if (loading.on) {
     dim(.6);
     text(loading.msg, 360, 600, { size: 32, align: 'center', weight: 900, color: '#fff' });
@@ -2611,7 +3303,7 @@ function loop(now) {
   bootEl.hidden = true;
   scene = titleScene; titleScene.enter();
   requestAnimationFrame(t => { last = t; loop(t); });
-  const first = ['img:lobby-map', 'img:lobby-bg-cloud1', 'img:lobby-bg-cloud2', 'img:lobby-bg-cloud3', 'anim:bird', 'anim:missionfx', ...A.man.atlas.map((_, i) => 'atlas:' + i), 'img:pond1-bg-water', 'img:pond1-bg-top', 'img:pond1-wood-grass', 'img:girl-idle', 'img:girl-fight', 'img:girl-shadow'];
+  const first = ['img:lobby-map', 'img:lobby-bg-cloud1', 'img:lobby-bg-cloud2', 'img:lobby-bg-cloud3', 'anim:bird', 'anim:missionfx', ...A.man.atlas.map((_, i) => 'atlas:' + i), 'img:pond1-bg-water', 'img:pond1-bg-top', 'img:pond1-wood-grass', 'img:girl-idle', 'img:girl-fight', 'img:girl-shadow', ...charAssets(S.char), 'img:boy-head'];
   await ensureProgress(first, v => titleScene.p = v);
   try { await document.fonts.ready; } catch (e) {}
   titleScene.ready = true;

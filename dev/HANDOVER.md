@@ -30,6 +30,13 @@
 | `online/{uid}` | 線上狀態（所在釣池） | 登入者可讀，只有本人可寫，斷線自動移除 |
 | `pond/{id}/{uid}` | 同池即時狀態（浮標、搏魚、表情） | 同上 |
 | `feed/{pushId}` | 漁獲通知 | 只能新增，不能修改 |
+| `chat/world`、`chat/p{池}` | 聊天訊息（最多 60 字） | 登入者可讀；只能新增，每人至少間隔 1.5 秒（`chatT/{uid}`） |
+| `ids/{帳號}` | 帳號對應 uid，用來以帳號加好友 | 登入者可讀，只能由該帳號本人建立一次 |
+| `requests/{對方}/{我}` | 好友邀請 | 收件人可讀可刪，寄件人可建立 |
+| `friends/{uid}/{好友uid}` | 好友名單 | 只有本人可讀；接受邀請時雙方同時寫入 |
+| `gifts/{收件人}/{pushId}` | 禮物 | 只能送給好友；數量有上限；每人至少間隔 3 秒（`giftT/{uid}`）。收件人領取後刪除 |
+
+同池即時狀態另外帶有 `x`（在碼頭上的位置）、`w`（走動方向）和 `c`（角色：`g` 女主角、`b` 男主角）。
 
 ## 素材建置流程（`dev/tools/`）
 
@@ -38,7 +45,27 @@
 3. `build_assets.py 原始images資料夾 工作資料夾 輸出資料夾`：輸出 WebP 圖集與 `assets.json`。
 4. `make_site.py`：把 `dev/game-source.html` 包成完整網站。
 
+## 這一版新增的程式重點
+
+- **碼頭與鏡頭**：`pond.wx` 是自己在碼頭上的位置，`pond.camW` 是鏡頭位置，單位是在碼頭處 1 單位等於 300 像素。全域變數 `CAMX` 讓 `proj()` 依透視平移。背景用鏡像拼接，水面著色器的 `cam` uniform 也會一起平移。
+- **角色**：`charInfo()` 回傳角色的圖、錨點和握竿位置，`drawChar()` 負責畫角色，`charHand()` 負責算出握竿的手的位置。
+- **男主角美術**：在 `dev/tools/char3d/` 用 three.js 算繪。
+  - `final.py` 輸出待機、搏魚、結算和頭像。
+  - `walk.py` 輸出走路動畫的 8 格。
+  - 模型是 Microsoft Rocketbox 的 Male_Adult_05，MIT 授權。
+- **水下搏魚**：`pond.drawUnder()`，依 `pond.line` 和 `pond.fish` 的狀態畫出來。
+- **聊天、好友、送禮**：
+  - 介面在 `chatModal`、`friendsModal`、`playerCard`、`giftModal`。
+  - 資料讀寫在 `FB.sendChat`、`FB.requestFriend`、`FB.acceptFriend`、`FB.sendGift`、`FB.claimGift`。
+  - 禮物內容由 `applyGift` 加進存檔。
+  - 不雅字清單是 `BAD_WORDS`。
+- **模擬器測試**：`dev/tools/mp_test3.py` 用兩個瀏覽器測試走動、聊天、加好友和送禮。
+  - 模擬器要先載入規則：`curl -X PUT -H "Authorization: Bearer owner" --data-binary @database.rules.json "http://127.0.0.1:9000/.settings/rules.json?ns=demo-bestangler"`
+
 ## 建議官方補上或決定的事項
+
+- **男主角**：目前是暫代的 3D 算繪美術，可以換成官方畫風的男主角。換的時候保持同樣的錨點，也就是腳底在畫面 y=1266、身體中心在 x=392。
+- **聊天管理**：目前只有用戶端的不雅字過濾和個人封鎖，沒有檢舉和後台。正式營運建議加 Cloud Functions 做審核，並定期清除舊訊息。
 
 - **角色動畫**：補上碼頭角色 124 格動畫（待機、拋竿、拉扯、收魚），目前只有兩個靜態姿勢。
 - **防作弊**：若要正式營運，建議加遊戲伺服器（例如 Cloud Functions），由伺服器結算漁獲與排行榜。

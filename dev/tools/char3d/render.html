@@ -1,0 +1,147 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<script type="importmap">{"imports":{"three":"./node_modules/three/build/three.module.js","three/addons/":"./node_modules/three/examples/jsm/"}}</script>
+<style>html,body{margin:0;background:transparent}</style>
+</head><body>
+<canvas id="c"></canvas>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+renderer.shadowMap.enabled = true;
+const scene = new THREE.Scene();
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+window.R = { THREE, renderer, scene, model: null, bones: {}, cam: null, extras: [] };
+
+window.setup = async (opts) => {
+  let m;
+  if (/\.fbx$/i.test(opts.model)) {
+    m = await new FBXLoader().loadAsync(opts.model);
+    const tl = new THREE.TextureLoader(), base = opts.model.replace(/[^/]+$/, '');
+    const T = async (n, srgb) => { const t = await tl.loadAsync(base + n); t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace; t.flipY = true; t.anisotropy = 8; return t; };
+    const p = opts.prefix;
+    const [bc, bn, hc, hn, oc] = await Promise.all([T(p + '_body_color.png', 1), T(p + '_body_normal.png'), T(p + '_head_color.png', 1), T(p + '_head_normal.png'), T(p + '_opacity_color.png', 1)]);
+    R.matInfo = [];
+    m.traverse(o => {
+      if (!o.isMesh) return;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      const out = mats.map(mt => {
+        const n = (mt.name || '');
+        R.matInfo.push([o.name, mt.name, mt.map ? mt.map.name : null, mt.transparent]);
+        if (/opacity|hair|lash|brow/i.test(n)) return new THREE.MeshStandardMaterial({ map: oc, transparent: true, alphaTest: 0.35, side: THREE.DoubleSide, roughness: .75 });
+        if (/head/i.test(n)) return new THREE.MeshStandardMaterial({ map: hc, normalMap: hn, roughness: .62 });
+        return new THREE.MeshStandardMaterial({ map: bc, normalMap: bn, roughness: .82 });
+      });
+      o.material = Array.isArray(o.material) ? out : out[0];
+    });
+  } else {
+    const gltf = await new GLTFLoader().loadAsync(opts.model);
+    m = gltf.scene; R.gltf = gltf;
+  }
+  R.model = m;
+  m.traverse(o => {
+    if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; o.frustumCulled = false; }
+    if (o.isBone) R.bones[o.name.replace('mixamorig', '').replace(/^Bip01[ _]/, '')] = o;
+  });
+  // only show the highest level of detail
+  if (opts.lod) m.traverse(o => { if (o.isMesh && !new RegExp(opts.lod, 'i').test(o.name)) o.visible = false; });
+  scene.add(m);
+  // lights: sun ahead of the angler (we look at their back), sky fill, warm bounce from the dock
+  const sun = new THREE.DirectionalLight(0xfff1dc, 2.2); sun.position.set(1.5, 4, -5); scene.add(sun);
+  const back = new THREE.DirectionalLight(0xdcefff, 1.15); back.position.set(-2, 3, 5); scene.add(back);
+  const hemi = new THREE.HemisphereLight(0xbfe3ff, 0x8a6a40, 0.9); scene.add(hemi);
+  return Object.keys(R.bones);
+};
+
+// pose helper: euler degrees per bone, applied on top of bind pose
+window.pose = (p) => {
+  for (const [name, e] of Object.entries(p)) {
+    const b = R.bones[name]; if (!b) continue;
+    if (!b.userData.q0) b.userData.q0 = b.quaternion.clone();
+    const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(e[0] * Math.PI / 180, e[1] * Math.PI / 180, e[2] * Math.PI / 180, 'XYZ'));
+    b.quaternion.copy(b.userData.q0).multiply(q);
+  }
+  R.model.updateMatrixWorld(true);
+};
+// a canvas bucket hat, placed in world space over the head then parented to the head bone
+window.addHat = (o = {}) => {
+  if (R.hat) { R.hat.parent.remove(R.hat); R.hat = null; }
+  R.model.updateMatrixWorld(true);
+  const head = R.bones.Head; const hp = new THREE.Vector3();
+  // skull: posed vertices in the top 22 cm of the body -> centroid in x/z, max y
+  let mesh = null; R.model.traverse(x => { if (x.isSkinnedMesh) mesh = x; });
+  const v = new THREE.Vector3(); let top = -1e9; const pts0 = [];
+  const n = mesh.geometry.attributes.position.count;
+  for (let i = 0; i < n; i += 3) { mesh.getVertexPosition(i, v); v.applyMatrix4(mesh.matrixWorld); pts0.push(v.clone()); if (v.y > top) top = v.y; }
+  const sk = pts0.filter(p => p.y > top - 14);
+  hp.set(sk.reduce((a, p) => a + p.x, 0) / sk.length, top, sk.reduce((a, p) => a + p.z, 0) / sk.length);
+  R.headTop = hp.toArray();
+  const s = o.scale || 1;
+  const pts = [[0, 13.5], [6.5, 13.1], [9.4, 11.8], [10.4, 6], [10.8, 2], [11.3, 1.2], [13.8, -0.6], [15.2, -1.5], [15.3, -2.1], [13.6, -1.4], [11, 0.2], [10.6, 0.2]].map(([x, y]) => new THREE.Vector2(x * s, y * s));
+  const geo = new THREE.LatheGeometry(pts, 48);
+  const tex = (() => { const c = document.createElement('canvas'); c.width = c.height = 256; const x = c.getContext('2d');
+    x.fillStyle = o.color || '#b9a57c'; x.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 4000; i++) { x.fillStyle = `rgba(${Math.random() < .5 ? '255,255,255' : '40,30,10'},${Math.random() * .06})`; x.fillRect(Math.random() * 256, Math.random() * 256, 2, 2); }
+    x.strokeStyle = 'rgba(60,45,20,.25)'; for (let y = 0; y < 256; y += 3) { x.beginPath(); x.moveTo(0, y); x.lineTo(256, y); x.stroke(); }
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(4, 2); return t; })();
+  const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: .95, side: THREE.DoubleSide });
+  const hat = new THREE.Mesh(geo, mat); hat.castShadow = true;
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(10.62 * s, 10.95 * s, 2.4 * s, 48, 1, true), new THREE.MeshStandardMaterial({ color: o.band || '#3d3a2c', roughness: .8, side: THREE.DoubleSide }));
+  band.position.y = 3.4 * s; hat.add(band);
+  hat.position.set(hp.x + (o.dx || 0), hp.y + (o.dy || 0), hp.z + (o.dz || 0));
+  hat.rotation.set((o.tilt || 0) * Math.PI / 180, 0, (o.roll || 0) * Math.PI / 180);
+  R.model.add(hat); R.model.updateMatrixWorld(true);
+  head.attach(hat); R.hat = hat;
+};
+// a fish lip-gripper held in the right hand (handle up, jaw down)
+window.addGripper = () => {
+  if (R.grip) { R.grip.parent.remove(R.grip); R.grip = null; }
+  R.model.updateMatrixWorld(true);
+  const hand = R.bones.R_Hand; const hp = new THREE.Vector3(); hand.getWorldPosition(hp);
+  const g = new THREE.Group();
+  const dark = new THREE.MeshStandardMaterial({ color: 0x1c1d20, roughness: .45, metalness: .2 });
+  const steel = new THREE.MeshStandardMaterial({ color: 0xc9ced4, roughness: .25, metalness: .9 });
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.7, 13, 20), dark); handle.position.y = 2; g.add(handle);
+  const cap = new THREE.Mesh(new THREE.TorusGeometry(2.2, .45, 10, 24), steel); cap.position.y = 9.5; g.add(cap);
+  const rod = new THREE.Mesh(new THREE.CylinderGeometry(.55, .55, 7, 12), steel); rod.position.y = -8; g.add(rod);
+  const jaw = new THREE.Mesh(new THREE.TorusGeometry(2.4, .55, 10, 24, Math.PI * 1.6), steel); jaw.position.y = -13.5; jaw.rotation.z = Math.PI * .7; g.add(jaw);
+  const tip = new THREE.Object3D(); tip.position.y = -16; g.add(tip); R.gripTip = tip;
+  g.position.copy(hp); g.position.y -= 2; g.position.z += 4;
+  R.model.add(g); R.model.updateMatrixWorld(true); hand.attach(g); R.grip = g;
+};
+window.objScreen = (obj, w, h) => { const v = new THREE.Vector3(); obj.getWorldPosition(v); v.project(R.cam); return [(v.x * 0.5 + 0.5) * w, (-v.y * 0.5 + 0.5) * h]; };
+window.resetPose = () => { for (const b of Object.values(R.bones)) if (b.userData.q0) b.quaternion.copy(b.userData.q0); R.model.updateMatrixWorld(true); };
+
+// camera: w x h pixels, looking from (az degrees around Y, el degrees up), framing the box
+window.shoot = (o) => {
+  renderer.setSize(o.w, o.h, false);
+  const box = new THREE.Box3().setFromObject(R.model);
+  const c = box.getCenter(new THREE.Vector3()), sz = box.getSize(new THREE.Vector3());
+  const dist = o.dist || 9;
+  const cam = new THREE.PerspectiveCamera(o.fov || 18, o.w / o.h, dist / 100, dist * 4);
+  const az = (o.az || 0) * Math.PI / 180, el = (o.el || 0) * Math.PI / 180;
+  const target = new THREE.Vector3(c.x, box.min.y + sz.y * (o.ty ?? 0.5), c.z);
+  cam.position.set(target.x + Math.sin(az) * Math.cos(el) * dist, target.y + Math.sin(el) * dist, target.z + Math.cos(az) * Math.cos(el) * dist);
+  cam.lookAt(target);
+  R.cam = cam;
+  renderer.render(scene, cam);
+  return canvas.toDataURL('image/png');
+};
+// screen position of a bone in the last shot (pixels)
+window.boneScreen = (name, w, h) => {
+  const b = R.bones[name]; const v = new THREE.Vector3(); b.getWorldPosition(v); v.project(R.cam);
+  return [(v.x * 0.5 + 0.5) * w, (-v.y * 0.5 + 0.5) * h];
+};
+window.ready = true;
+</script>
+</body></html>

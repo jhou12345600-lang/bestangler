@@ -68,6 +68,40 @@ single("girl-shadow", up2(Image.open(R + "fishing/girl/girl-shadow.png")), 2)
 single("fight-bed", up2(Image.open(R + "fighting/bg-water-bed.png")), 2)
 single("fight-surface", Image.open(R + "fighting/bg-water-surface.png").convert("RGBA"), 1)
 
+# ---------- male angler (rendered from the MIT-licensed Microsoft Rocketbox avatar library) ----------
+BOY = "/home/claude/char3d/out/"
+if os.path.exists(BOY + "boy.json"):
+    bj = json.load(open(BOY + "boy.json"))
+    idle = Image.open(BOY + "boy-idle.png").convert("RGBA"); fight = Image.open(BOY + "boy-fight.png").convert("RGBA")
+    W_, H_ = idle.size
+    sb = H_ / 505.0                       # texture px per logical px: about the girl's on-screen height
+    a = np.array(idle.getchannel("A")); legs = a[int(H_ * .6):]
+    cols = np.where(legs.max(0) > 40)[0]; body_cx = (cols.min() + cols.max()) / 2
+    ax_ = 392 - body_cx / sb; ay_ = 1266 - H_ / sb
+    single("boy-idle", idle, sb, 90); single("boy-fight", fight, sb, 90)
+    cat = Image.open(BOY + "boy-catch.png").convert("RGBA")
+    sc_ = cat.size[1] / 870.0
+    ca = np.array(cat.getchannel("A")); lc = np.where(ca[int(cat.size[1] * .6):].max(0) > 40)[0]
+    single("boy-catch", cat, sc_, 88)
+    head = Image.open(BOY + "boy-head.png").convert("RGBA")
+    single("boy-head", head, 2, 88)
+    # walk cycle strip (3/4 back view facing screen-left; mirrored when walking right)
+    wj = json.load(open(BOY + "boy-walk.json")); ws = Image.open(BOY + "boy-walk.png").convert("RGBA")
+    single("boy-walk", ws, sb, 88)
+    wa = np.array(ws.crop((0, 0, wj["fw"], wj["fh"])).getchannel("A"))
+    tc = np.where(wa[int(wj["fh"] * .2):int(wj["fh"] * .45)].max(0) > 40)[0]
+    walk_meta = {"n": wj["n"], "fw": round(wj["fw"] / sb, 2), "fh": round(wj["fh"] / sb, 2), "cx": round((tc.min() + tc.max()) / 2 / sb, 1),
+                 "hands": [[round(h[0] / sb, 1), round(h[1] / sb, 1)] for h in wj["hands"]]}
+    man["meta"]["boy"] = {
+        "anchor": {"x": round(ax_, 1), "y": round(ay_, 1), "w": round(W_ / sb, 1), "h": round(H_ / sb, 1)},
+        "handIdle": [round(ax_ + bj["idle"]["hand"][0] / sb, 1), round(ay_ + bj["idle"]["hand"][1] / sb, 1)],
+        "handFight": [round(ax_ + bj["fight"]["hand"][0] / sb, 1), round(ay_ + bj["fight"]["hand"][1] / sb, 1)],
+        "catchW": round(cat.size[0] / sc_, 1), "catchH": round(cat.size[1] / sc_, 1),
+        "catchCx": round(((lc.min() + lc.max()) / 2) / sc_, 1),
+        "catchTip": [round(bj["catch"]["tip"][0] / sc_, 1), round(bj["catch"]["tip"][1] / sc_, 1)],
+        "walk": walk_meta,
+    }
+
 # ---------- UI atlas (2x) ----------
 UI_PATTERNS = ["fighting-top-UI/*.png", "fishing/*.[pP][nN][gG]", "top-UI/*.png", "*.png", "fishing/POP-catch/*.png",
                "fishing/POP-tackle/*.png", "lobby/pond-board/*.png", "lobby/button-*.png", "lobby/up-button-[!m]*.png",

@@ -46,6 +46,63 @@
         ".write": "auth != null && !data.exists() && newData.child('uid').val() === auth.uid",
         ".validate": "newData.hasChildren(['uid','n','sp','len','t']) && newData.child('n').isString() && newData.child('n').val().length <= 16"
       }
+    },
+    "chat": {
+      "$room": {
+        ".read": "auth != null && ($room === 'world' || $room.matches(/^p[1-9]$/))",
+        ".indexOn": [
+          "t"
+        ],
+        "$id": {
+          ".write": "auth != null && !data.exists() && newData.exists()",
+          ".validate": "newData.hasChildren(['uid','n','m','t']) && newData.child('uid').val() === auth.uid && newData.child('n').isString() && newData.child('n').val().length <= 16 && newData.child('m').isString() && newData.child('m').val().length >= 1 && newData.child('m').val().length <= 60 && newData.child('t').val() === now && ($room === 'world' || $room.matches(/^p[1-9]$/)) && (!root.child('chatT/' + auth.uid).exists() || now - root.child('chatT/' + auth.uid).val() >= 1500) && newData.parent().parent().parent().child('chatT/' + auth.uid).val() === now"
+        }
+      }
+    },
+    "chatT": {
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid",
+        ".validate": "newData.val() === now"
+      }
+    },
+    "ids": {
+      "$id": {
+        ".read": "auth != null",
+        ".write": "auth != null && !data.exists() && newData.val() === auth.uid && auth.token.email === $id + '@player.bestangler.app'"
+      }
+    },
+    "requests": {
+      "$to": {
+        ".read": "auth != null && auth.uid === $to",
+        "$from": {
+          ".write": "auth != null && ((auth.uid === $from && $from !== $to) || (auth.uid === $to && !newData.exists()))",
+          ".validate": "!newData.exists() || (newData.hasChildren(['n','t']) && newData.child('n').isString() && newData.child('n').val().length <= 16 && newData.child('t').val() === now)"
+        }
+      }
+    },
+    "friends": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "$fuid": {
+          ".write": "auth != null && $uid !== $fuid && (auth.uid === $uid || (auth.uid === $fuid && (!newData.exists() || root.child('requests/' + $fuid + '/' + $uid).exists())))",
+          ".validate": "!newData.exists() || (newData.child('n').isString() && newData.child('n').val().length <= 16)"
+        }
+      }
+    },
+    "gifts": {
+      "$to": {
+        ".read": "auth != null && auth.uid === $to",
+        "$id": {
+          ".write": "auth != null && ((auth.uid === $to && !newData.exists()) || (!data.exists() && newData.child('from').val() === auth.uid && root.child('friends/' + $to + '/' + auth.uid).exists()))",
+          ".validate": "!newData.exists() || (newData.hasChildren(['from','n','k','q','t']) && newData.child('n').isString() && newData.child('n').val().length <= 16 && newData.child('t').val() === now && newData.child('q').isNumber() && newData.child('q').val() >= 1 && ((newData.child('k').val() === 'silver' && newData.child('q').val() <= 1000) || (newData.child('k').val() === 'gold' && newData.child('q').val() <= 20) || (newData.child('k').val() === 'bait' && newData.child('q').val() <= 100) || (newData.child('k').val().matches(/^(rod|line|float|lure)$/) && newData.child('q').val() === 1)) && newData.child('id').isString() && newData.child('id').val().length <= 20 && (!root.child('giftT/' + auth.uid).exists() || now - root.child('giftT/' + auth.uid).val() >= 3000) && newData.parent().parent().parent().child('giftT/' + auth.uid).val() === now)"
+        }
+      }
+    },
+    "giftT": {
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid",
+        ".validate": "newData.val() === now"
+      }
     }
   }
 }
