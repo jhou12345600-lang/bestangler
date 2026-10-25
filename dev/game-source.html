@@ -197,6 +197,19 @@ function load() {
   try { const raw = localStorage.getItem(SAVE_KEY); if (raw) S = Object.assign(freshSave(), JSON.parse(raw)); } catch (e) { /* storage blocked: play without saving */ }
   if (S.today.date !== today()) S.today = { date: today(), list: [] };
 }
+// A cloud save is a JSON string. A save edited by hand in the Firebase console can come back as an object
+// (RTDB turns arrays into objects), so accept both and repair the shape; the next save writes a string again.
+function parseSave(v) {
+  const o = typeof v === 'string' ? JSON.parse(v) : v && typeof v === 'object' ? v : null;
+  if (!o) return null;
+  const arr = a => Array.isArray(a) ? a.filter(x => x != null) : a && typeof a === 'object' ? Object.values(a).filter(x => x != null) : [];
+  o.owned = o.owned || {}; for (const k of ['rod', 'line', 'float', 'lure']) o.owned[k] = arr(o.owned[k]);
+  if (!o.owned.rod.length) o.owned.rod = ['12feet']; if (!o.owned.line.length) o.owned.line = ['0.4']; if (!o.owned.float.length) o.owned.float = ['ball'];
+  if (o.today) o.today.list = arr(o.today.list);
+  if (Array.isArray(o.bet)) o.bet = Object.fromEntries(o.bet.map((v, i) => [i, v]).filter(([, v]) => v != null));
+  for (const k of ['bait', 'records', 'blocked', 'equip']) if (!o[k] || typeof o[k] !== 'object' || Array.isArray(o[k])) delete o[k];
+  return o;
+}
 function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) { /* ignore */ } if (typeof FB !== 'undefined') FB.queueSave(); }
 const lvFromEp = ep => { let lv = 1; while (ep >= epForLv(lv + 1)) lv++; return lv; };
 function epForLv(lv) { return lv <= 1 ? 0 : Math.round(60 * Math.pow(lv - 1, 1.55)); }
@@ -639,7 +652,7 @@ const FB = {
     this.user = user; NET.uid = user.uid; NET.room = 'fire'; NET.db = 'fire';
     // cloud save wins; a brand-new account keeps progress made on this device
     let cloud = null;
-    try { const snap = await this.db.ref('users/' + user.uid + '/save').get(); if (snap.exists()) cloud = JSON.parse(snap.val()); } catch (e) {}
+    try { const snap = await this.db.ref('users/' + user.uid + '/save').get(); if (snap.exists()) cloud = parseSave(snap.val()); } catch (e) {}
     if (cloud) { S = Object.assign(freshSave(), cloud); if (S.today.date !== today()) S.today = { date: today(), list: [] }; }
     else if (fresh) S = Object.assign(freshSave(), fresh);
     if (user.isAnonymous && (!S.name || S.name === '神釣手')) S.name = '訪客' + user.uid.slice(-4);
