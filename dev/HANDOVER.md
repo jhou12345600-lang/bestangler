@@ -60,6 +60,7 @@
   - 禮物內容由 `applyGift` 加進存檔。
   - 不雅字清單是 `BAD_WORDS`。
 - **模擬器測試**：`dev/tools/mp_test3.py` 用兩個瀏覽器測試走動、聊天、加好友和送禮。
+  - 正式站檢查：`python3 dev/tools/live_test2.py 網址` 會用兩個暫時帳號測試，結束後自動刪除。
   - 模擬器要先載入規則：`curl -X PUT -H "Authorization: Bearer owner" --data-binary @database.rules.json "http://127.0.0.1:9000/.settings/rules.json?ns=demo-bestangler"`
 
 ## 建議官方補上或決定的事項

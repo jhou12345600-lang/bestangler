@@ -68,7 +68,7 @@
     "ids": {
       "$id": {
         ".read": "auth != null",
-        ".write": "auth != null && !data.exists() && newData.val() === auth.uid && auth.token.email === $id + '@player.bestangler.app'"
+        ".write": "auth != null && ((!data.exists() && newData.val() === auth.uid && auth.token.email === $id + '@player.bestangler.app') || (data.val() === auth.uid && !newData.exists()))"
       }
     },
     "requests": {
