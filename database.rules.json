@@ -1,0 +1,51 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "users": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        "save": {
+          ".validate": "newData.isString() && newData.val().length < 100000"
+        }
+      }
+    },
+    "leaderboard": {
+      ".read": "auth != null",
+      ".indexOn": [
+        "ep"
+      ],
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid",
+        ".validate": "newData.hasChildren(['n','lv','ep']) && newData.child('n').isString() && newData.child('n').val().length <= 16 && newData.child('ep').isNumber() && newData.child('lv').isNumber()"
+      }
+    },
+    "online": {
+      ".read": "auth != null",
+      "$uid": {
+        ".write": "auth != null && auth.uid === $uid",
+        ".validate": "!newData.exists() || (newData.child('n').isString() && newData.child('n').val().length <= 16)"
+      }
+    },
+    "pond": {
+      "$pond": {
+        ".read": "auth != null",
+        "$uid": {
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "!newData.exists() || (newData.child('n').isString() && newData.child('n').val().length <= 16)"
+        }
+      }
+    },
+    "feed": {
+      ".read": "auth != null",
+      ".indexOn": [
+        "t"
+      ],
+      "$id": {
+        ".write": "auth != null && !data.exists() && newData.child('uid').val() === auth.uid",
+        ".validate": "newData.hasChildren(['uid','n','sp','len','t']) && newData.child('n').isString() && newData.child('n').val().length <= 16"
+      }
+    }
+  }
+}
