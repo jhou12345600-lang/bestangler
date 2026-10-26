@@ -3026,7 +3026,7 @@ function tackleModal() {
 function shopModal() {
   const tabs = [['bait', '魚餌', 'lobby/shop/label-button-bait'], ['rod', '釣竿', 'lobby/shop/label-button-rod'], ['line', '釣線', 'lobby/shop/label-button-line'], ['float', '浮標', 'lobby/shop/label-button-float']];
   const m = {
-    tab: 'bait', sel: null, qty: 10, off: 0,
+    tab: 'bait', sel: null, qty: 1, off: 0,
     list() {
       if (m.tab === 'rod') return Object.entries(RODS).map(([k, v]) => ({ k, icon: 'tackle-icons/rods/' + k, name: v.name, price: v.price, owned: S.owned.rod.includes(k), desc: `${v.code}・拋投距離 ${v.cast}・釣線長 ${v.line}m・魚體 ${v.maxCm}cm 以下` }));
       if (m.tab === 'line') return Object.entries(LINES).map(([k, v]) => ({ k, icon: lineIcon(k), name: v.name, price: v.price, owned: S.owned.line.includes(k), desc: `承受力 ${v.S}・生命值 ${v.life || '無限'}・適用 ${Object.keys(v.fits).map(r => r === 'H' ? '手竿' : r).join('、')}` }));
@@ -3045,7 +3045,7 @@ function shopModal() {
       if (consumable) S.bait[it.k] = (S.bait[it.k] || 0) + n * BAIT_PACK;
       else if (m.tab === 'bait') S.owned.lure.push(it.k);
       else S.owned[m.tab].push(it.k);
-      save(); audio.coin(); openModal(messageModal('購買成功！\n' + it.name + (consumable ? ' ×' + n : ''), '商店'));
+      save(); audio.coin(); openModal(messageModal('購買成功！\n' + it.name + (consumable ? ` ${n} 包（${n * BAIT_PACK} 份）` : ''), '商店'));
     },
     draw() {
       dim(.4);
@@ -3067,7 +3067,7 @@ function shopModal() {
           if (sel) { ctx.save(); ctx.shadowColor = '#ffe86a'; ctx.shadowBlur = 16; roundRect(x - 60, y - 60, 120, 124, 16); ctx.strokeStyle = '#ffe86a'; ctx.lineWidth = 5; ctx.stroke(); ctx.restore(); }
           if (it.owned) text('已擁有', x, y + 50, { size: 18, align: 'center', weight: 900, color: '#9dffb0', stroke: '#123' });
           else if (it.count) text('×' + it.count, x + 46, y + 38, { size: 18, align: 'right', weight: 900, color: '#fff', stroke: '#222' });
-          if (hit('shop' + i, { x: x - 60, y: y - 60, w: 120, h: 124 }, 1).click) { m.sel = it; m.qty = it.lure || m.tab !== 'bait' ? 1 : 10; }
+          if (hit('shop' + i, { x: x - 60, y: y - 60, w: 120, h: 124 }, 1).click) { m.sel = it; m.qty = 1; }
         }
         if (list.length > per) {
           if (btn('sdn', 'lobby/shop/button-down', 676, 480, { press: 'lobby/shop/button-down-press', s: .62, layer: 1 }).click) m.off = m.off + per >= list.length ? 0 : m.off + per;
@@ -3076,17 +3076,18 @@ function shopModal() {
         // detail scroll
         const it = m.sel && list.find(i => i.k === m.sel.k);
         if (it) {
-          ui(it.icon, ox + 178, oy + 852, { ax: .5, ay: .5, s: 1 });
-          text(it.name, ox + 252, oy + 812, { size: 26, weight: 900, color: '#4a1e05' });
-          wrapText(it.desc, ox + 252, oy + 845, 236, 26, { size: 17, color: '#6a3a14', weight: 700 });
           const consumable = m.tab === 'bait' && !it.lure;
+          ui(it.icon, ox + 178, consumable ? oy + 836 : oy + 852, { ax: .5, ay: .5, s: consumable ? .78 : 1 });
+          text(it.name, ox + 252, oy + 806, { size: 24, weight: 900, color: '#4a1e05' });
+          // the description gets the whole column; quantity sits under the picture so nothing overlaps
+          wrapText(it.desc, ox + 252, oy + 836, 240, 22, { size: 15, color: '#6a3a14', weight: 700 });
           const n = consumable ? m.qty : 1;
           ui(it.price[1] === 's' ? 'lobby/shop/icon-silver' : 'lobby/shop/icon-gold', ox + 520, oy + 828, { ax: .5, ay: .5, s: .55 });
           text(fmt(it.price[0] * n), ox + 542, oy + 829, { size: 24, weight: 900, color: '#4a1e05' });
           if (consumable) {
-            if (btn('qm', 'lobby/shop/button-', ox + 300, oy + 902, { s: .5, layer: 1 }).click) m.qty = Math.max(1, m.qty - 10 || 1);
-            text(String(m.qty), ox + 352, oy + 903, { size: 22, weight: 900, color: '#4a1e05', align: 'center' });
-            if (btn('qp', 'lobby/shop/button+', ox + 404, oy + 902, { s: .5, layer: 1 }).click) m.qty = Math.min(990, m.qty + 10);
+            if (btn('qm', 'lobby/shop/button-', ox + 128, oy + 908, { s: .42, layer: 1 }).click) m.qty = Math.max(1, m.qty - 1);
+            text(m.qty + ' 包', ox + 178, oy + 909, { size: 19, weight: 900, color: '#fff', stroke: '#3a1a06', sw: 4, align: 'center' });
+            if (btn('qp', 'lobby/shop/button+', ox + 228, oy + 908, { s: .42, layer: 1 }).click) m.qty = Math.min(99, m.qty + 1);
           }
           if (btn('buy', 'lobby/shop/button-buy', ox + 570, oy + 887, { s: .92, layer: 1, disabled: !consumable && it.owned }).click) m.buy(it);
         } else text('點選商品查看說明', ox + 360, oy + 850, { size: 24, align: 'center', weight: 700, color: '#6a3a14' });
