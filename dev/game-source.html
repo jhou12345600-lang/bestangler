@@ -226,7 +226,7 @@ const baitName = k => (BAITS[k] && BAITS[k].name) || k;
 const lineIcon = k => 'tackle-icons/lines/' + (k === '0.5' ? '0.4' : k);
 const baitFits = (baitK, rodK) => { const b = BAITS[baitK]; return !!b && (b.rods.includes(rodGroup(rodK)) || b.rods.includes(rodK)); };
 const BAIT_PACK = 10;           // 每一包為十單位
-const HOOK_RATE = .3;           // 震動三秒內揚竿，只有 30% 的機率釣中
+const HOOK_RATE = .5;           // 震動三秒內揚竿的中魚機率（官方企劃 30%，依需求調高為 50%）
 const BITE_WINDOW = 3;          // 秒
 // 成就（稱號）by level
 const TITLES = [[1, '初級新手'], [3, '中級老手'], [6, '進階高手'], [10, '職人初段'], [20, '職人二段'], [30, '職人三段'], [40, '名人四段'], [50, '名人五段'], [60, '逹人六段'], [70, '鐵人七段'], [80, '聖手八段'], [90, '神手九段'], [99, '宗師十段']];

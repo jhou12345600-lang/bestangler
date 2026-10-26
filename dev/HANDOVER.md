@@ -79,7 +79,7 @@
 | 裝備-釣線 | `LINES`（`S` 承受力、`life` 生命值、`fits` 適配釣竿和會咬餌的魚） |
 | 裝備-浮標 | `FLOATS`（`sens` 敏感度） |
 | 裝備-魚餌 | `BAITS`（`rates` 釣獲率 %、`rods` 適用釣竿）；一包份數是 `BAIT_PACK` |
-| 揚竿成功率 | `HOOK_RATE`（0.3）、`BITE_WINDOW`（3 秒） |
+| 揚竿成功率 | `HOOK_RATE`（目前 0.5；官方企劃為 0.3）、`BITE_WINDOW`（3 秒） |
 | 搏魚公式 | `pond.updateFight()`、`pond.fishForce()`（魚力值波幅）、`pond.readControls()`（收線光條） |
 | 任務 | `missionList()` |
 | 排行榜 | `leaderboardModal()`；週與月成績存在 `leaderboard` 的 `wk/wep`、`mo/mep` |
