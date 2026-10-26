@@ -103,6 +103,13 @@
         ".write": "auth != null && auth.uid === $uid",
         ".validate": "newData.val() === now"
       }
+    },
+    "records": {
+      ".read": "auth != null",
+      "$sp": {
+        ".write": "auth != null && newData.child('uid').val() === auth.uid && (!data.exists() || newData.child('len').val() > data.child('len').val())",
+        ".validate": "newData.hasChildren(['len','n','uid','t']) && newData.child('len').isNumber() && newData.child('len').val() < 300 && newData.child('n').isString() && newData.child('n').val().length <= 16 && $sp.matches(/^[a-z]{3,16}$/)"
+      }
     }
   }
 }

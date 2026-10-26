@@ -68,6 +68,10 @@ single("girl-shadow", up2(Image.open(R + "fishing/girl/girl-shadow.png")), 2)
 single("fight-bed", up2(Image.open(R + "fighting/bg-water-bed.png")), 2)
 single("fight-surface", Image.open(R + "fighting/bg-water-surface.png").convert("RGBA"), 1)
 
+# ---------- official underwater fight background (from the 2026 spec; HUD removed by tools/uwbg.py)
+if os.path.exists(W + "uw-bg.png"):
+    single("uw-bg", Image.open(W + "uw-bg.png").convert("RGB"), 1.5, 82)
+
 # ---------- male angler (rendered from the MIT-licensed Microsoft Rocketbox avatar library) ----------
 BOY = "/home/claude/char3d/out/"
 if os.path.exists(BOY + "boy.json"):

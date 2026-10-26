@@ -111,86 +111,141 @@ function cleanName(v, fallback = '釣手') {
 
 /* ---------------- game data ---------------- */
 // Species stats. len in cm; pull ~ how hard it fights; stam = endurance; value = base silver.
+/* =====================================================================
+   GAME DATA — from the official spec (神釣手之進擊的戰鬥池 企劃 + 數值表).
+   Blank cells in the official tables were filled with simple estimates;
+   those are marked "估" and are easy for the official team to change.
+   ===================================================================== */
+// Size bands: [min cm, max cm, 魚力值 F, 體力值 U, 經驗值 EP]
 const FISH = {
-  crucian:      { name: '鯽魚',     min: 10, max: 35,  pull: .34, stam: .55, speed: 1.1, value: 3,   wk: .016 },
-  carp:         { name: '鯉魚',     min: 25, max: 90,  pull: .60, stam: 1.0, speed: 1.0, value: 6,   wk: .014 },
-  tilapia:      { name: '吳郭魚',   min: 15, max: 45,  pull: .44, stam: .70, speed: 1.2, value: 4,   wk: .017 },
-  niloticus:    { name: '吉利慈鯛', min: 20, max: 55,  pull: .50, stam: .80, speed: 1.2, value: 5,   wk: .017 },
-  tinfoil:      { name: '泰國鯽',   min: 12, max: 35,  pull: .46, stam: .65, speed: 1.4, value: 5,   wk: .015 },
-  rainbow:      { name: '花羅漢',   min: 12, max: 30,  pull: .40, stam: .60, speed: 1.1, value: 8,   wk: .020 },
-  whitegrunt:   { name: '白石鱸',   min: 20, max: 45,  pull: .58, stam: .90, speed: 1.3, value: 10,  wk: .015 },
-  culter:       { name: '曲腰魚',   min: 25, max: 80,  pull: .64, stam: .90, speed: 1.6, value: 12,  wk: .008 },
-  corvina:      { name: '紅鼓魚',   min: 40, max: 120, pull: .80, stam: 1.3, speed: 1.3, value: 18,  wk: .011 },
-  bbass:        { name: '大嘴黑鱸', min: 25, max: 70,  pull: .74, stam: 1.0, speed: 1.5, value: 15,  wk: .015 },
-  peacock:      { name: '孔雀鱸',   min: 30, max: 80,  pull: .86, stam: 1.1, speed: 1.6, value: 20,  wk: .014 },
-  grouper:      { name: '點帶石斑', min: 40, max: 110, pull: .95, stam: 1.4, speed: 1.1, value: 30,  wk: .016 },
-  giantgrouper: { name: '龍膽石斑', min: 100, max: 230, pull: 1.30, stam: 2.4, speed: 1.0, value: 120, wk: .017 },
+  niloticus:    { name: '吉利慈鯛', bands: [[5, 10, 8, 100, 5], [11, 20, 15, 200, 10], [21, 30, 25, 300, 20], [31, 40, 35, 400, 30], [41, 45, 45, 500, 40]], silver: s => s / 5, gold: 0, speed: 1.2 },
+  tinfoil:      { name: '泰國鯽',   bands: [[5, 10, 5, 80, 3], [11, 20, 11, 150, 7], [21, 30, 21, 250, 13], [31, 40, 31, 350, 17], [41, 45, 41, 450, 23]], silver: s => s / 4, gold: 0, speed: 1.4 },
+  rainbow:      { name: '花羅漢',   bands: [[5, 10, 15, 100, 5], [11, 20, 25, 200, 10], [21, 30, 35, 300, 20], [31, 40, 45, 400, 30], [41, 45, 55, 500, 40]], silver: s => s / 3, gold: 1, speed: 1.1 },
+  carp:         { name: '鯉魚',     bands: [[11, 20, 25, 200, 13], [21, 30, 35, 300, 23], [31, 40, 45, 400, 33], [41, 50, 55, 500, 43], [51, 60, 65, 600, 53], [61, 70, 75, 700, 63], [71, 80, 85, 800, 73]], silver: s => s / 2, gold: 1, speed: 1.0 },
+  tilapia:      { name: '福壽魚',   bands: [[21, 30, 25, 300, 60], [31, 40, 35, 400, 80], [41, 49, 45, 500, 100]], silver: s => s, gold: 10, speed: 1.2 },
+  crucian:      { name: '日鯽',     bands: [[21, 30, 30, 300, 80]], silver: s => s, gold: 15, speed: 1.1 },
+  // 戰鬥池 / 路亞池: the official table gives only some 魚力值; the rest are 估 (F = 上限+5, U = 上限×10, EP = 上限×4 / ×3)
+  whitegrunt:   { name: '白石鱸',   bands: [[31, 40, 45], [41, 50, 55], [51, 60, 65], [61, 80, 85], [81, 90, 95]], silver: s => s * 2, gold: 500, speed: 1.3, epK: 4 },
+  corvina:      { name: '眼斑擬石首魚', bands: [[45, 50], [51, 60], [61, 80], [81, 90], [91, 100], [101, 110], [111, 120]], silver: s => s * 2.5, gold: 700, speed: 1.3, epK: 4 },
+  grouper:      { name: '點帶石斑', bands: [[41, 50], [51, 60], [61, 80], [81, 90]], silver: s => s * 3, gold: 1000, speed: 1.1, epK: 4 },
+  giantgrouper: { name: '龍膽石斑', bands: [[51, 70], [71, 90], [91, 110], [111, 130]], silver: s => s * 12, gold: 3000, speed: 1.0, epK: 4 },
+  culter:       { name: '曲腰魚',   bands: [[21, 30], [31, 40], [41, 50], [51, 60], [61, 80]], silver: s => s * 2, gold: 50, speed: 1.6, epK: 3 },
+  bbass:        { name: '大口黑鱸', bands: [[21, 30], [31, 40], [41, 50], [51, 60], [61, 70], [71, 75]], silver: s => s * 2.5, gold: 100, speed: 1.5, epK: 3 },
+  peacock:      { name: '孔雀鱸',   bands: [[21, 30], [31, 40], [41, 50], [51, 60], [61, 70], [71, 75]], silver: s => s * 3, gold: 300, speed: 1.6, epK: 3 },  // 官方表只列到 21~30，其餘比照大口黑鱸（估）
 };
+for (const f of Object.values(FISH)) {
+  f.bands = f.bands.map(b => [b[0], b[1], b[2] ?? Math.min(200, b[1] + 5), b[3] ?? Math.min(1000, b[1] * 10), b[4] ?? Math.round(b[1] * (f.epK || 3))]);
+  f.min = f.bands[0][0]; f.max = f.bands[f.bands.length - 1][1];
+}
+const fishBand = (sp, len) => { const f = FISH[sp]; return f.bands.find(b => len <= b[1] + .99) || f.bands[f.bands.length - 1]; };
+// 魚類尺寸和重量對照表 (kg at each length); in between is a straight line, as the spec explains
+const KG_CM = [10, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 110, 120, 130];
+const KG = {
+  niloticus: [.1, .25, .4, .7, 1, 1.6], rainbow: [.1, .25, .4, .7, 1, 1.6], tilapia: [.1, .25, .4, .7, 1, 1.6],
+  whitegrunt: [.1, .25, .4, .7, 1, 1.6, 2.2, 2.5, 3.3, 4.1, 5.1, 6.3, 7.7, 9.2, 10.8, 12.7],
+  corvina: [, , , , , , 1, 1.4, 1.8, 2.3, 2.9, 3.6, 4.5, 5.4, 6.4, 7.6, 8.8, 10.3, 13.7, 17.6, 22.3],
+  grouper: [, , , , , , 1, 1.4, 1.8, 2.3, 2.9, 3.6, 4.5, 5.4, 6.4, 7.6, 8.8, 10.3, 13.7, 17.6, 22.3],
+  giantgrouper: [, , , , , , 1, 1.4, 1.8, 2.3, 2.9, 3.6, 4.5, 5.4, 6.4, 7.6, 8.8, 10.3, 13.7, 17.6, 22.3],
+  bbass: [, .2, .28, .48, .77, 1.16, 1.65, 2.22, 2.76, 3.26, 3.76, 4.26, 5], peacock: [, .2, .28, .48, .77, 1.16, 1.65, 2.22, 2.76, 3.26, 3.76, 4.26, 5],
+  carp: [, .2, .3, .5, .8, 1.3, 2, 2.8, 3.9, 5.1, 6.3, 7.5, 8.7, 10, 13, 16, 20, 24],
+  crucian: [.1, .2, .3, .5, .8, 1.3, 2], tinfoil: [.05, .1, .2, .3, .5, .8],
+  culter: [, .08, .12, .18, .27, .38, .52, .7, .9, 1.15, 1.45, 1.8, 2.2, 2.65],   // 曲腰魚不在官方重量表（估）
+};
+function fishKg(sp, len) {
+  const pts = (KG[sp] || []).map((v, i) => [KG_CM[i], v]).filter(p => p[1] !== undefined);
+  if (!pts.length) return Math.round(.012 * len * len * len / 1000 * 100) / 100;
+  let kg;
+  if (len <= pts[0][0]) kg = pts[0][1] * Math.pow(len / pts[0][0], 3);
+  else if (len >= pts[pts.length - 1][0]) { const [a, b] = pts.length > 1 ? pts.slice(-2) : [[0, 0], pts[0]]; kg = b[1] + (len - b[0]) * (b[1] - a[1]) / (b[0] - a[0]); }
+  else for (let i = 1; i < pts.length; i++) if (len <= pts[i][0]) { const [a, b] = [pts[i - 1], pts[i]]; kg = a[1] + (len - a[0]) * (b[1] - a[1]) / (b[0] - a[0]); break; }
+  return Math.round(kg * 100) / 100;
+}
+// 魚池. fee: per cast (silver × bet, or gold) or a room fee per 10 minutes
 const PONDS = [
-  { id: 1, name: '休閒池', lv: 1, bgKey: 'pond1', minBet: 1, maxBet: 10, mode: 'float',
+  { id: 1, name: '休閒池', lv: 1, bgKey: 'pond1', mode: 'float', rods: ['pole'], bet: true, fee: { per: 'cast', cur: 's', amt: 1 },
     rules: ['本池限用手竿釣組。', '每丟一竿最低收銀幣 1 元。', '加注時若釣到魚可以乘倍。', '不限制使用誘餌。', '不限時間可以釣魚。'],
-    fish: { crucian: 30, carp: 22, tilapia: 18, niloticus: 12, tinfoil: 12, rainbow: 6 }, pin: [175, 965], btn: 'lobby/button-pond1' },
-  { id: 2, name: '競技池', lv: 3, bgKey: 'pond2', minBet: 5, maxBet: 50, mode: 'float',
-    rules: ['本池限用手竿釣組。', '每丟一竿最低收銀幣 5 元。', '魚種較大，獎勵較高。', '加注時若釣到魚可以乘倍。', '建議使用 2 號以上釣線。'],
-    fish: { carp: 20, niloticus: 14, whitegrunt: 18, culter: 16, corvina: 10, tinfoil: 12, rainbow: 10 }, pin: [420, 725], btn: 'lobby/button-pond2' },
-  { id: 3, name: '路亞池', lv: 5, bgKey: 'pond3', minBet: 10, maxBet: 80, mode: 'lure',
-    rules: ['本池限用路亞竿與假餌。', '拋投後轉動捲線器收線引誘魚咬餌。', '收線太快或太慢魚都不愛追。', '每丟一竿最低收銀幣 10 元。', '加注時若釣到魚可以乘倍。'],
-    fish: { bbass: 34, peacock: 26, culter: 24, corvina: 16 }, pin: [610, 985], btn: 'lobby/button-pond3' },
-  { id: 4, name: '戰鬥池', lv: 7, bgKey: 'pond4', minBet: 20, maxBet: 200, mode: 'float',
-    rules: ['大型魚出沒，請使用粗線與長竿。', '可使用手竿或路亞竿。', '每丟一竿最低收銀幣 20 元。', '龍膽石斑極為兇猛，小心斷線。', '加注時若釣到魚可以乘倍。'],
-    fish: { grouper: 34, corvina: 22, peacock: 16, whitegrunt: 14, giantgrouper: 7 }, pin: [1040, 845], btn: 'lobby/button-pond4' },
+    fish: ['niloticus', 'tinfoil', 'rainbow', 'carp'], pin: [175, 965], btn: 'lobby/button-pond1' },
+  { id: 2, name: '競技池', lv: 3, bgKey: 'pond2', mode: 'float', rods: ['pole'], fee: { per: 'cast', cur: 'g', amt: 1 },
+    rules: ['本池限用手竿釣組。', '每丟一竿收金幣 1 元。', '不限制使用誘餌。', '福壽魚采金：10 金幣。', '日鯽采金：15 金幣。'],
+    fish: ['tilapia', 'crucian'], pin: [420, 725], btn: 'lobby/button-pond2' },
+  { id: 3, name: '路亞池', lv: 5, bgKey: 'pond3', mode: 'lure', rods: ['lure'], fee: { per: 'room', cur: 'g', amt: 100 },
+    rules: ['本池限用路亞竿釣組。', '每釣 10 分鐘收金幣 100 元。', '可以無限丟出竿。', '不得使用誘餌。', '曲腰魚采金 50、大口黑鱸采金 100、孔雀鱸采金 300 金幣。'],
+    fish: ['culter', 'bbass', 'peacock'], pin: [610, 985], btn: 'lobby/button-pond3' },
+  { id: 4, name: '戰鬥池', lv: 7, bgKey: 'pond4', mode: 'float', rods: ['pole', 'cast'], fee: { per: 'room', cur: 'g', amt: 1000 },
+    rules: ['本池限用手竿及投竿釣組。', '每釣 10 分鐘收金幣 1000 元。', '可以無限丟出竿。', '不得使用誘餌。', '采金：白石鱸 500、眼斑擬石首魚 700、點帶石斑 1000、龍膽石斑 3000 金幣。'],
+    fish: ['whitegrunt', 'corvina', 'grouper', 'giantgrouper'], pin: [1040, 845], btn: 'lobby/button-pond4' },
 ];
-// Tackle. Prices in silver (s) or gold (g).
+// 裝備-釣竿: cast = 拋投距離 (1 nearest … 5 farthest), line = 釣線長度 (m), maxCm = 魚體尺寸限制. len/kind are for drawing.
 const RODS = {
-  '12feet': { name: '12 尺手竿', kind: 'pole', power: 1.00, cast: 7.5, len: 300, price: [0, 's'] },
-  '15feet': { name: '15 尺手竿', kind: 'pole', power: 1.15, cast: 9.5, len: 340, price: [800, 's'] },
-  '18feet': { name: '18 尺手竿', kind: 'pole', power: 1.32, cast: 11.5, len: 380, price: [2500, 's'] },
-  'UL':     { name: 'UL 路亞竿', kind: 'lure', power: 1.00, cast: 16, len: 300, price: [600, 's'] },
-  'ML':     { name: 'ML 路亞竿', kind: 'lure', power: 1.18, cast: 19, len: 320, price: [1500, 's'] },
-  'MH':     { name: 'MH 路亞竿', kind: 'lure', power: 1.36, cast: 22, len: 340, price: [4000, 's'] },
-  'C300':   { name: 'C300 船竿', kind: 'any',  power: 1.55, cast: 14, len: 330, price: [30, 'g'] },
-  'C360':   { name: 'C360 船竿', kind: 'any',  power: 1.75, cast: 16, len: 360, price: [80, 'g'] },
+  '12feet': { name: '12 尺手竿', code: 'H1', kind: 'pole', cast: 1, line: 36, maxCm: 15, len: 300, price: [0, 's'] },
+  '15feet': { name: '15 尺手竿', code: 'H2', kind: 'pole', cast: 2, line: 45, maxCm: 30, len: 340, price: [1000, 's'] },
+  '18feet': { name: '18 尺手竿', code: 'H3', kind: 'pole', cast: 3, line: 54, maxCm: 50, len: 380, price: [3000, 's'] },
+  'C300':   { name: '輕投竿',    code: 'C300', kind: 'cast', cast: 4, line: 500, maxCm: 100, len: 330, price: [500, 'g'] },
+  'C360':   { name: '重投竿',    code: 'C360', kind: 'cast', cast: 5, line: 900, maxCm: 169, len: 360, price: [1000, 'g'] },
+  'UL':     { name: '微拋路亞竿', code: 'UL', kind: 'lure', cast: 4, line: 300, maxCm: 60, len: 300, price: [300, 'g'] },
+  'ML':     { name: '鱒魚竿',    code: 'ML', kind: 'lure', cast: 5, line: 500, maxCm: 99, len: 320, price: [500, 'g'] },
+  'MH':     { name: '重型路亞竿', code: 'MH', kind: 'lure', cast: 5, line: 700, maxCm: 120, len: 340, price: [800, 'g'] },   // 不在官方釣竿表，深水魚假餌需要（估）
 };
+// 裝備-釣線: S = 承受力, life = 生命值 (casts; 0 = 無限), rods → species that will bite
+const G_POLE6 = ['niloticus', 'tinfoil', 'rainbow', 'carp', 'crucian', 'tilapia'];
+const G_BATTLE = ['whitegrunt', 'corvina', 'grouper', 'giantgrouper'], G_LURE = ['culter', 'bbass', 'peacock'];
 const LINES = {
-  '0.4': { name: '0.4 號線', b: 0.85, bite: 1.00, price: [0, 's'] },
-  '1':   { name: '1 號線',   b: 1.05, bite: .97,  price: [100, 's'] },
-  '2':   { name: '2 號線',   b: 1.30, bite: .94,  price: [300, 's'] },
-  '3':   { name: '3 號線',   b: 1.60, bite: .90,  price: [700, 's'] },
-  '4':   { name: '4 號線',   b: 1.95, bite: .86,  price: [1500, 's'] },
-  '5':   { name: '5 號線',   b: 2.40, bite: .82,  price: [20, 'g'] },
-  '6':   { name: '6 號線',   b: 3.00, bite: .78,  price: [50, 'g'] },
+  '0.5': { name: '0.5 號線', S: 50,  life: 10, price: [50, 'g'],  fits: { H: G_POLE6 } },
+  '1':   { name: '1 號線',   S: 70,  life: 20, price: [30, 'g'],  fits: { H: ['niloticus', 'tinfoil', 'rainbow', 'carp', 'tilapia'] } },
+  '2':   { name: '2 號線',   S: 100, life: 0,  price: [0, 's'],   fits: { H: ['niloticus', 'tinfoil', 'rainbow', 'carp'], C300: G_BATTLE, UL: G_LURE, ML: G_LURE } },
+  '3':   { name: '3 號線',   S: 200, life: 30, price: [30, 'g'],  fits: { C300: G_BATTLE, C360: G_BATTLE, UL: G_LURE, ML: G_LURE, MH: G_LURE } },
+  '4':   { name: '4 號線',   S: 300, life: 40, price: [50, 'g'],  fits: { C300: G_BATTLE, C360: G_BATTLE, MH: G_LURE } },
+  '5':   { name: '5 號線',   S: 400, life: 50, price: [70, 'g'],  fits: { C360: G_BATTLE, MH: G_LURE } },
+  '6':   { name: '6 號線',   S: 500, life: 60, price: [100, 'g'], fits: { C360: G_BATTLE } },
 };
+const rodGroup = k => RODS[k].kind === 'pole' ? 'H' : k;
+const lineFish = (lineK, rodK) => { const f = (LINES[lineK] || {}).fits || {}; return f[rodGroup(rodK)] || null; };
+// 裝備-浮標: sens 0 = only float/sink, 1 = medium, 2 = high (鯽魚吸食也看得清楚)
 const FLOATS = {
-  'ball':     { name: '圓浮標',   spr: 'fishing/float-ball',     win: 1.00, warn: 1.0, price: [0, 's'] },
-  'short':    { name: '短浮標',   spr: 'fishing/float-short',    win: 1.05, warn: 1.0, price: [80, 's'] },
-  'long':     { name: '長浮標',   spr: 'fishing/float-long',     win: 1.15, warn: 1.1, price: [150, 's'] },
-  'feeling':  { name: '靈敏浮標', spr: 'fishing/float-feeling',  win: 1.45, warn: 1.4, price: [400, 's'] },
-  'big-ball': { name: '大圓浮標', spr: 'fishing/float-ball-big', win: 1.10, warn: 1.0, price: [600, 's'] },
-  'big-long': { name: '大長浮標', spr: 'fishing/float-long-big', win: 1.30, warn: 1.25, price: [1000, 's'] },
+  'short':    { name: '短浮標',       spr: 'fishing/float-short',    sens: 0, kind: 'pole', price: [0, 's'] },
+  'long':     { name: '長浮標',       spr: 'fishing/float-long',     sens: 1, kind: 'pole', price: [1000, 's'] },
+  'feeling':  { name: '高感度浮標',   spr: 'fishing/float-feeling',  sens: 2, kind: 'pole', price: [100, 'g'] },
+  'big-ball': { name: '投竿球型浮標', spr: 'fishing/float-ball-big', sens: 1, kind: 'cast', price: [300, 'g'] },
+  'big-long': { name: '投竿棒型浮標', spr: 'fishing/float-long-big', sens: 2, kind: 'cast', price: [500, 'g'] },
 };
-// Baits: consumable (count) or lure (owned, reusable). likes = species multipliers.
+// 裝備-魚餌: rates = 釣獲率 % per species; price per pack of 10. Lures are kept and reused.
 const BAITS = {
-  '萬能餌': { price: [2, 's'], likes: { crucian: 1, carp: 1, tilapia: 1, niloticus: 1, tinfoil: 1, rainbow: 1, whitegrunt: .8, culter: .6, corvina: .5, grouper: .4 }, rate: 1.0 },
-  '麥片':   { price: [1, 's'], likes: { crucian: 1.6, carp: 1.4, tinfoil: 1 }, rate: .9 },
-  '地瓜':   { price: [1, 's'], likes: { carp: 1.8, crucian: .8 }, rate: .85 },
-  '青餌':   { price: [2, 's'], likes: { carp: 1.5, crucian: 1.4, tinfoil: 1.1 }, rate: 1.0 },
-  '蚯蚓':   { price: [2, 's'], likes: { crucian: 1.3, tilapia: 1.4, niloticus: 1.3, tinfoil: 1.2, whitegrunt: 1, bbass: .6 }, rate: 1.1 },
-  '蛆':     { price: [2, 's'], likes: { crucian: 1.5, tinfoil: 1.4, rainbow: 1.4 }, rate: 1.1 },
-  '福壽餌': { price: [3, 's'], likes: { tilapia: 1.7, niloticus: 1.7, carp: .8 }, rate: 1.05 },
-  '金寶螺': { price: [5, 's'], likes: { carp: 1.4, niloticus: 1.2, peacock: .9, grouper: .7 }, rate: .95 },
-  '蝦仁':   { price: [4, 's'], likes: { tilapia: 1.2, rainbow: 1.6, whitegrunt: 1.3, niloticus: 1 }, rate: 1.1 },
-  '小蝦':   { price: [4, 's'], likes: { whitegrunt: 1.5, corvina: 1.2, bbass: 1, peacock: 1, culter: 1.1 }, rate: 1.1 },
-  '大白蝦': { price: [8, 's'], likes: { corvina: 1.6, grouper: 1.4, whitegrunt: 1.2, giantgrouper: .8 }, rate: 1.05 },
-  '鬍鬚蝦': { price: [10, 's'], likes: { corvina: 1.7, grouper: 1.5, giantgrouper: 1 }, rate: 1.05 },
-  '海蟲':   { price: [8, 's'], likes: { whitegrunt: 1.6, corvina: 1.4, grouper: 1 }, rate: 1.1 },
-  '沙丁魚': { price: [12, 's'], likes: { grouper: 1.6, giantgrouper: 1.4, corvina: 1.3, culter: 1 }, rate: 1.0 },
-  '魚塊':   { price: [15, 's'], likes: { giantgrouper: 2.2, grouper: 1.5 }, rate: .9 },
-  '亮片':     { price: [200, 's'], lure: 'fishing/lure-spoon', likes: { culter: 1.6, bbass: 1.1, peacock: 1 }, speed: .55 },
-  '捲尾軟蟲': { price: [300, 's'], lure: 'fishing/lure-twintails', likes: { bbass: 1.6, peacock: 1.2, corvina: .8 }, speed: .35 },
-  '沉水鉛筆': { price: [500, 's'], lure: 'fishing/lure-pencil', likes: { culter: 1.3, peacock: 1.3, bbass: 1.1 }, speed: .7 },
-  '波爬':     { price: [500, 's'], lure: 'fishing/lure-popper', likes: { bbass: 1.5, peacock: 1.4 }, speed: .5 },
-  '深水魚':   { price: [8, 'g'], lure: 'fishing/lure-deepfish', likes: { corvina: 1.8, peacock: 1.2, bbass: 1.2, culter: 1 }, speed: .5 },
+  '萬能餌': { rods: ['H'], price: [2, 's'],  rates: { niloticus: 20, tinfoil: 50, rainbow: 15, carp: 5, crucian: 2, tilapia: 8 } },
+  '青餌':   { rods: ['H'], price: [5, 's'],  rates: { niloticus: 15, tinfoil: 35, rainbow: 25, carp: 10, crucian: 3, tilapia: 12 } },
+  '福壽餌': { rods: ['H'], price: [5, 's'],  rates: { niloticus: 20, tinfoil: 40, rainbow: 20, carp: 3, crucian: 2, tilapia: 15 } },
+  '蚯蚓':   { rods: ['H'], price: [10, 's'], rates: { niloticus: 20, tinfoil: 10, rainbow: 25, carp: 15, crucian: 10, tilapia: 20 } },
+  '蛆':     { rods: ['H'], price: [10, 's'], name: '蛆蟲', rates: { niloticus: 20, tinfoil: 40, rainbow: 15, carp: 10, crucian: 5, tilapia: 10 } },
+  '小蝦':   { rods: ['H'], price: [15, 's'], rates: { niloticus: 20, tinfoil: 10, rainbow: 30, carp: 13, crucian: 7, tilapia: 20 } },
+  '麥片':   { rods: ['H'], price: [15, 's'], rates: { niloticus: 15, tinfoil: 20, rainbow: 15, carp: 20, crucian: 15, tilapia: 15 } },
+  '地瓜':   { rods: ['H'], price: [20, 's'], rates: { niloticus: 15, tinfoil: 5, rainbow: 15, carp: 25, crucian: 20, tilapia: 20 } },
+  '金寶螺': { rods: ['H'], price: [30, 's'], rates: { niloticus: 10, tinfoil: 10, rainbow: 10, carp: 30, crucian: 25, tilapia: 15 } },
+  '蝦仁':   { rods: ['C300', 'C360'], price: [30, 's'],  rates: { whitegrunt: 70, corvina: 25, grouper: 3, giantgrouper: 2 } },
+  '魚塊':   { rods: ['C300', 'C360'], price: [50, 's'],  rates: { whitegrunt: 60, corvina: 32, grouper: 5, giantgrouper: 3 } },
+  '海蟲':   { rods: ['C300', 'C360'], price: [100, 's'], rates: { whitegrunt: 50, corvina: 30, grouper: 15, giantgrouper: 5 } },
+  '鬍鬚蝦': { rods: ['C300', 'C360'], price: [5, 'g'],   rates: { whitegrunt: 40, corvina: 30, grouper: 20, giantgrouper: 10 } },
+  '大白蝦': { rods: ['C300', 'C360'], price: [10, 'g'],  rates: { whitegrunt: 30, corvina: 30, grouper: 20, giantgrouper: 20 } },
+  '沙丁魚': { rods: ['C300', 'C360'], price: [15, 'g'],  rates: { whitegrunt: 20, corvina: 20, grouper: 30, giantgrouper: 30 } },
+  '捲尾軟蟲': { rods: ['UL'], price: [300, 's'], lure: 'fishing/lure-twintails', speed: .35, rates: { culter: 70, bbass: 25, peacock: 5 } },
+  '亮片':     { rods: ['UL'], price: [5, 'g'],   lure: 'fishing/lure-spoon', speed: .55, rates: { culter: 60, bbass: 30, peacock: 10 } },
+  '波爬':     { rods: ['ML'], price: [10, 'g'],  lure: 'fishing/lure-popper', speed: .5, rates: { culter: 50, bbass: 30, peacock: 20 } },
+  '沉水鉛筆': { rods: ['ML'], price: [15, 'g'],  lure: 'fishing/lure-pencil', speed: .7, rates: { culter: 40, bbass: 30, peacock: 30 } },
+  '深水魚':   { rods: ['MH'], price: [20, 'g'],  lure: 'fishing/lure-deepfish', speed: .5, rates: { culter: 30, bbass: 30, peacock: 40 } },
 };
+const baitName = k => (BAITS[k] && BAITS[k].name) || k;
+const lineIcon = k => 'tackle-icons/lines/' + (k === '0.5' ? '0.4' : k);
+const baitFits = (baitK, rodK) => { const b = BAITS[baitK]; return !!b && (b.rods.includes(rodGroup(rodK)) || b.rods.includes(rodK)); };
+const BAIT_PACK = 10;           // 每一包為十單位
+const HOOK_RATE = .3;           // 震動三秒內揚竿，只有 30% 的機率釣中
+const BITE_WINDOW = 3;          // 秒
+// 成就（稱號）by level
+const TITLES = [[1, '初級新手'], [3, '中級老手'], [6, '進階高手'], [10, '職人初段'], [20, '職人二段'], [30, '職人三段'], [40, '名人四段'], [50, '名人五段'], [60, '逹人六段'], [70, '鐵人七段'], [80, '聖手八段'], [90, '神手九段'], [99, '宗師十段']];
+// 等級：須累計經驗值（官方表：前一級 × 1.5 / 1.4 / … / 1.01）
+const LEVEL_EP = (() => {
+  const out = [0, 0, 100, 200]; let v = 200;
+  for (let lv = 4; lv <= 99; lv++) { const k = lv <= 10 ? 1.5 : lv <= 20 ? 1.4 : lv <= 25 ? 1.3 : lv <= 30 ? 1.2 : lv <= 35 ? 1.1 : lv <= 40 ? 1.05 : lv <= 45 ? 1.04 : lv <= 50 ? 1.03 : lv <= 55 ? 1.02 : 1.01; v *= k; out[lv] = Math.round(v); }
+  return out;
+})();
+const MAX_LV = 99;
 
 /* ---------------- save ---------------- */
 const SAVE_KEY = 'bestangler.save.v1';
@@ -198,9 +253,11 @@ const today = () => new Date().toISOString().slice(0, 10);
 function freshSave() {
   return {
     name: '神釣手', ep: 0, gold: 20, silver: 500, firstRun: true,
-    owned: { rod: ['12feet'], line: ['0.4'], float: ['ball'], lure: [] },
+    owned: { rod: ['12feet'], line: ['2'], float: ['short'], lure: [] },
     bait: { '萬能餌': 40, '蚯蚓': 10 },
-    equip: { rod: '12feet', line: '0.4', float: 'ball', bait: '萬能餌' },
+    equip: { rod: '12feet', line: '2', float: 'short', bait: '萬能餌' },
+    lineLife: {}, stats: { kg: 0, pond: {}, day: { d: '', kg: 0 }, goldFish: 0 }, firsts: {}, done: {}, streak: { last: '', n: 0, weeks: 0 },
+    epw: { k: '', v: 0 }, epm: { k: '', v: 0 },
     records: {}, today: { date: today(), list: [] }, lastLogin: '', bet: {}, totalCaught: 0, sound: true,
     char: 'girl', uw: true, blocked: {}, gifts: { date: today(), n: 0 },
   };
@@ -209,6 +266,25 @@ let S = freshSave();
 function load() {
   try { const raw = localStorage.getItem(SAVE_KEY); if (raw) S = Object.assign(freshSave(), JSON.parse(raw)); } catch (e) { /* storage blocked: play without saving */ }
   if (S.today.date !== today()) S.today = { date: today(), list: [] };
+  migrateSave();
+}
+// Older saves use tackle keys from before the official tables (0.4 號線, 圓浮標): move them to the official set.
+function migrateSave() {
+  const fresh = freshSave();
+  for (const k of ['stats', 'streak', 'epw', 'epm']) S[k] = Object.assign({}, fresh[k], S[k] || {});
+  for (const k of ['lineLife', 'firsts', 'done']) if (!S[k] || typeof S[k] !== 'object') S[k] = {};
+  if (!S.stats.pond || typeof S.stats.pond !== 'object') S.stats.pond = {};
+  const own = S.owned;
+  own.line = own.line.map(k => k === '0.4' ? '2' : k); own.float = own.float.map(k => k === 'ball' ? 'short' : k);
+  if (S.equip.line === '0.4') S.equip.line = '2'; if (S.equip.float === 'ball') S.equip.float = 'short';
+  if (!own.line.includes('2')) own.line.unshift('2'); if (!own.float.includes('short')) own.float.unshift('short'); if (!own.rod.includes('12feet')) own.rod.unshift('12feet');
+  own.rod = [...new Set(own.rod.filter(k => RODS[k]))]; own.line = [...new Set(own.line.filter(k => LINES[k]))];
+  own.float = [...new Set(own.float.filter(k => FLOATS[k]))]; own.lure = [...new Set(own.lure.filter(k => BAITS[k] && BAITS[k].lure))];
+  for (const k of Object.keys(S.bait)) if (!BAITS[k] || BAITS[k].lure) delete S.bait[k];
+  if (!own.rod.includes(S.equip.rod)) S.equip.rod = '12feet';
+  if (!own.line.includes(S.equip.line)) S.equip.line = '2';
+  if (!own.float.includes(S.equip.float)) S.equip.float = 'short';
+  if (!BAITS[S.equip.bait]) S.equip.bait = '萬能餌';
 }
 // A cloud save is a JSON string. A save edited by hand in the Firebase console can come back as an object
 // (RTDB turns arrays into objects), so accept both and repair the shape; the next save writes a string again.
@@ -224,11 +300,21 @@ function parseSave(v) {
   return o;
 }
 function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) { /* ignore */ } if (typeof FB !== 'undefined') FB.queueSave(); }
-const lvFromEp = ep => { let lv = 1; while (ep >= epForLv(lv + 1)) lv++; return lv; };
-function epForLv(lv) { return lv <= 1 ? 0 : Math.round(60 * Math.pow(lv - 1, 1.55)); }
+const lvFromEp = ep => { let lv = 1; while (lv < MAX_LV && ep >= epForLv(lv + 1)) lv++; return lv; };
+function epForLv(lv) { return lv <= 1 ? 0 : lv > MAX_LV ? Infinity : LEVEL_EP[lv]; }
 const LV = () => lvFromEp(S.ep);
-const TITLES = ['見習釣手', '初級釣手', '中級釣手', '高級釣手', '職人初段', '職人二段', '職人三段', '釣魚達人', '釣魚名人', '神之釣手'];
-const title = () => TITLES[Math.min(TITLES.length - 1, Math.floor((LV() - 1) / 2))];
+const localDate = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const weekKey = () => { const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() - (d.getDay() + 6) % 7); return localDate(d); };  // Monday
+const monthKey = () => localDate(new Date()).slice(0, 7);
+const fishDay = () => localDate(new Date(Date.now() - 3600e3));   // 挑戰賽的一天：凌晨 1:00 起算
+function addEp(v) {
+  S.ep += v;
+  const w = weekKey(), m = monthKey();
+  if (S.epw.k !== w) S.epw = { k: w, v: 0 }; if (S.epm.k !== m) S.epm = { k: m, v: 0 };
+  S.epw.v += v; S.epm.v += v;
+}
+const titleFor = lv => { let t = TITLES[0][1]; for (const [l, n] of TITLES) if (lv >= l) t = n; return t; };
+const title = () => titleFor(LV());
 
 /* ---------------- assets ---------------- */
 const A = { man: null, tex: {}, pending: {}, atlas: [] };
@@ -593,7 +679,17 @@ const NET = {
   profileBody() {
     let bestSp = null, bestLen = 0, bestRel = -1;
     for (const [k, len] of Object.entries(S.records)) { const f = FISH[k]; if (!f) continue; const rel = (len - f.min) / (f.max - f.min) + f.max / 100; if (rel > bestRel) { bestRel = rel; bestSp = k; bestLen = len; } }
-    return { n: S.name, lv: LV(), ep: Math.floor(S.ep), total: S.totalCaught | 0, bestSp: bestSp || '', bestLen, at: Date.now() };
+    const w = weekKey(), mo = monthKey();
+    return { n: S.name, lv: LV(), ep: Math.floor(S.ep), total: S.totalCaught | 0, bestSp: bestSp || '', bestLen, at: Date.now(),
+      wk: w, wep: S.epw.k === w ? Math.floor(S.epw.v) : 0, mo, mep: S.epm.k === mo ? Math.floor(S.epm.v) : 0, c: S.char === 'boy' ? 'b' : 'g' };
+  },
+  // 釣獲最大的紀錄魚: server-wide record per species
+  checkRecord(r) {
+    if (this.mode !== 'fire' || !FB.user) return;
+    const ref = FB.db.ref('records/' + r.sp);
+    ref.transaction(cur => (!cur || r.len > (+cur.len || 0)) ? { len: r.len, n: cleanName(S.name), uid: FB.user.uid, t: Date.now() } : undefined)
+      .then(res => { if (res.committed && res.snapshot.val() && res.snapshot.val().uid === FB.user.uid) { S.recBeat = S.recBeat || {}; S.recBeat[r.sp] = 1; save(); NET.pushFeed(`你釣到目前全服最大的${FISH[r.sp].name}：${r.len} 公分！`); } })
+      .catch(() => {});
   },
   saveProfile() {
     if (this.mode === 'fire') { FB.saveBoard(this.profileBody()); return; }
@@ -668,6 +764,7 @@ const FB = {
     try { const snap = await this.db.ref('users/' + user.uid + '/save').get(); if (snap.exists()) cloud = parseSave(snap.val()); } catch (e) {}
     if (cloud) { S = Object.assign(freshSave(), cloud); if (S.today.date !== today()) S.today = { date: today(), list: [] }; }
     else if (fresh) S = Object.assign(freshSave(), fresh);
+    migrateSave();
     if (user.isAnonymous && (!S.name || S.name === '神釣手')) S.name = '訪客' + user.uid.slice(-4);
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {}
     this.dirty = true; this.flushSave();
@@ -679,7 +776,7 @@ const FB = {
     this.joinT = this.now();
     const onl = this.db.ref('online');
     onl.on('value', s => { this.onlineMap = s.val() || {}; });
-    this.db.ref('leaderboard').orderByChild('ep').limitToLast(50).on('value', s => {
+    this.db.ref('leaderboard').orderByChild('ep').limitToLast(300).on('value', s => {
       const arr = []; s.forEach(c => { arr.push({ id: c.key, ...c.val() }); }); arr.sort((a, b) => (b.ep || 0) - (a.ep || 0)); NET.board = arr;
     });
     this.db.ref('feed').orderByChild('t').limitToLast(8).on('child_added', s => {
@@ -1026,7 +1123,7 @@ function hudTop(o = {}) {
   text(fmt(S.silver), px + 70, y0 + 66 + 32, { size: 24, weight: 900, color: '#fff', stroke: '#0a4a6a' });
   ui('top-UI/EP-panel', px - 4, y0 + 130, { s: .62 });
   text(fmt(S.ep) + ' EP', px + 50, y0 + 130 + 25, { size: 19, weight: 900, color: '#fff', stroke: '#0a4a6a' });
-  if (btn('pay', 'top-UI/button-payment', 668, y0 + 64, { s: .8, layer: o.layer ?? 0 }).click) openModal(shopModal());
+  if (btn('pay', 'top-UI/button-payment', 668, y0 + 64, { s: .8, layer: o.layer ?? 0 }).click) openModal(payModal());
   // sound toggle
   const sr = { x: 636, y: y0 + 116, w: 70, h: 54 };
   const sh = hit('snd', sr, o.layer ?? 0);
@@ -1207,7 +1304,8 @@ function accountModal() {
         text('帳號', 360, 382, { size: 40, align: 'center', weight: 900, color: '#ffe36a', stroke: '#2f4d0c', sw: 8 });
         const anon = FB.user && FB.user.isAnonymous;
         text(anon ? '目前是訪客身分' : '登入帳號：' + FB.accountName(), 360, 470, { size: 26, align: 'center', weight: 900, color: '#fff' });
-        text('遊戲名稱：' + S.name, 360, 515, { size: 24, align: 'center', weight: 700, color: '#ffeccc' });
+        text('遊戲名稱：' + S.name, 360, 512, { size: 24, align: 'center', weight: 700, color: '#ffeccc' });
+        if (!anon) { const lv = LV(); text(`Lv.${lv}「${title()}」・經驗 ${fmt(S.ep)}` + (lv < MAX_LV ? ` / ${fmt(epForLv(lv + 1))}` : ''), 360, 552, { size: 20, align: 'center', weight: 700, color: '#ffd76a' }); }
         if (anon) wrapText('訪客進度只存在這台裝置的登入狀態。綁定帳號密碼後，換手機也能接續。', 360, 565, 440, 34, { size: 21, align: 'center', color: '#ffeccc', weight: 700 });
         let y = anon ? 680 : 620;
         if (anon && textBtn('acBind', '綁定帳號', 360, y, 260, 64, { layer: 1, size: 28, colors: ['#ffd76a', '#e09a1a'], edge: '#7a4a00' }).click) { closeModal(m); AUTH.bindMode = true; AUTH.set('register'); go(titleScene); }
@@ -1250,11 +1348,16 @@ const lobbyScene = {
     if (this.camX === 0) this.camX = 0;
     this.birds = Array.from({ length: 3 }, (_, i) => ({ x: rnd(0, 1440), y: rnd(160, 420), v: rnd(30, 60), f: rnd(8), s: rnd(.35, .6) }));
     ensure(['img:lobby-map', 'img:lobby-bg-cloud1', 'img:lobby-bg-cloud2', 'img:lobby-bg-cloud3', 'anim:bird', 'anim:missionfx']);
-    // daily login reward
-    if (S.lastLogin !== today()) {
-      const first = S.firstRun; S.lastLogin = today(); S.firstRun = false;
-      const reward = first ? 0 : 10; S.silver += reward; save();
-      setTimeout(() => openModal(messageModal(first ? '歡迎來到神釣手！\n先到「休閒池」試試手感。\n點「拋投」出竿，浮標下沉時按「揚竿」，再轉動捲線器把魚拉上岸。' : `登錄獎勵\n今天獲得 ${reward} 銀幣！`, first ? '新手指引' : '領取獎賞')), 400);
+    // 每日登入 (100 銀幣, lobby only) and the 連續 7 天登入 streak
+    const td = localDate(new Date());
+    if (S.lastLogin !== td) {
+      const first = S.firstRun, yd = localDate(new Date(Date.now() - 864e5));
+      S.streak.n = S.streak.last === yd ? S.streak.n + 1 : 1; S.streak.last = td;
+      S.lastLogin = td; S.firstRun = false;
+      const reward = first ? 0 : 100; S.silver += reward; save();
+      const msg = first ? '歡迎來到神釣手！\n先到「休閒池」試試手感。\n點「拋投」出竿，浮標下沉後 3 秒內按「揚竿」。\n中魚後點「力」收線，別讓線斷了！'
+        : `每日登入\n今天獲得 ${reward} 銀幣！\n已連續登入 ${S.streak.n} 天` + (S.streak.n >= 7 ? '\n連續 7 天登入的任務可以領獎了！' : '');
+      setTimeout(() => openModal(messageModal(msg, first ? '新手指引' : '每日登入')), 400);
     }
   },
   update(dt) {
@@ -1287,13 +1390,13 @@ const lobbyScene = {
         ui('lobby/button-pond-locked', x + 44, y - 50, { s: .55, ax: .5, ay: .5 });
         text('Lv.' + p.lv, x, y + 102, { size: 22, align: 'center', weight: 900, stroke: '#3a1000', color: '#ffd76a' });
       }
-      if (b.click && P.moved < 24) openModal(pondBoard(p));
+      if (b.click && P.moved < 24) { if (lv < p.lv) say(`需要 Lv.${p.lv} 才能解鎖${p.name}`); else openModal(pondBoard(p)); }
     });
     // amusement park (locked)
     const lx = 760 - cx, ly = 1100;
     if (lx > -150 && lx < LW + 150) {
       ui('lobby/button-locky-lightwheel', lx, ly, { s: .5, ax: .5, ay: .5, a: .7 });
-      if (btn('locky', 'lobby/button-locky', lx, ly, { s: .62 }).click) openModal(messageModal('遊樂場（幸運摸彩）\n即將開放，敬請期待！', '遊樂場'));
+      if (btn('locky', 'lobby/button-locky', lx, ly, { s: .62 }).click) openModal(lotteryModal());
       ui('lobby/button-pond-locked', lx + 56, ly - 50, { s: .5, ax: .5, ay: .5 });
     }
     // top menu buttons
@@ -1305,7 +1408,7 @@ const lobbyScene = {
         if (id === 'shop') openModal(shopModal());
         else if (id === 'tackle') openModal(tackleModal());
         else if (id === 'ranking') openModal(leaderboardModal());
-        else if (id === 'achievement') openModal(recordsModal());
+        else if (id === 'achievement') openModal(achievementModal());
         else if (socialOk()) openModal(friendsModal('list'));
       }
     });
@@ -1331,6 +1434,8 @@ const lobbyScene = {
     pill('lchar', '🧑 換角色', NET.mode === 'fire' ? 652 : NET.canChat() ? 590 : 528, 0, () => openModal(charModal()));
     frame('missionfx', this.t * 15, 650, 410, { s: .82 });
     if (btn('mmission', 'lobby/up-button-missions', 650, 410, { s: .98 }).click) openModal(missionsModal());
+    const nOk = missionList().filter(x => x.ok).length;
+    if (nOk) { ctx.save(); ctx.fillStyle = '#ff4a3a'; ctx.beginPath(); ctx.arc(694, 366, 16, 0, Math.PI * 2); ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#fff'; ctx.stroke(); ctx.restore(); text(String(nOk), 694, 367, { size: 18, weight: 900, align: 'center', color: '#fff' }); }
     // scroll hint
     const pct = this.camX / (1440 - LW);
     ctx.save(); ctx.globalAlpha = .7; roundRect(260, 1236, 200, 10, 5); ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fill();
@@ -1352,6 +1457,35 @@ const BODY = [392, 1266];                                   // where an angler's
 const unprojZ = y => 3.2 * (1255 - HZ) / Math.max(1, y - HZ) - 3.2;
 const HAND_IDLE = [433, 1012], HAND_FIGHT = [510, 858];
 const FIGHT_ST = ['cast', 'hookset', 'fight', 'land', 'lure'];
+const BET_MAX = 100;
+// 休閒池采金魚: 2~4 random casts out of every 100 get a golden bite
+function goldCycle() { const set = new Set(), n = rint(2, 4); while (set.size < n) set.add(rint(1, 100)); return set; }
+// 路亞池 / 戰鬥池 charge a room fee for 10 minutes of fishing
+const ROOM_MS = 10 * 60 * 1000;
+function roomValid(p) { return p.fee.per !== 'room' || (S.room && S.room.p === p.id && Date.now() < S.room.until); }
+function payRoom(p) {
+  if (S.gold < p.fee.amt) return false;
+  S.gold -= p.fee.amt; S.room = { p: p.id, until: Date.now() + ROOM_MS }; save(); audio.coin(); return true;
+}
+function roomModal(p, expired) {
+  const m = {
+    draw() {
+      dim();
+      withPop(m, 360, 640, () => {
+        ui('lobby/pond-board/board', 360, 640, { ax: .5, ay: .5, s: .9 });
+        text(p.name, 360, 382, { size: 40, align: 'center', weight: 900, color: '#ffe36a', stroke: '#2f4d0c', sw: 8 });
+        const y2 = wrapText((expired ? '10 分鐘到了。' : '') + `每釣 10 分鐘收金幣 ${fmt(p.fee.amt)} 元。`, 360, 500, 440, 40, { size: 26, align: 'center', color: '#fff', weight: 700 });
+        text(`你目前有 ${fmt(S.gold)} 金幣`, 360, y2 + 20, { size: 24, align: 'center', color: '#ffe9a6', weight: 900 });
+        const ok = S.gold >= p.fee.amt;
+        if (textBtn('rmPay', ok ? `付 ${fmt(p.fee.amt)} 金幣` : '金幣不足', 270, 800, 200, 64, { layer: 1, size: 26, colors: ok ? ['#ffd76a', '#e09a1a'] : ['#8fa4b4', '#4c6070'], edge: ok ? '#7a4a00' : '#26343f' }).click && ok) {
+          closeModal(m); payRoom(p); pond._roomAsked = false; if (!expired) enterPond(p, true);
+        }
+        if (textBtn('rmNo', expired ? '回大廳' : '取消', 470, 800, 180, 64, { layer: 1, size: 26 }).click) { closeModal(m); if (expired) go(lobbyScene); }
+      });
+    },
+  };
+  return m;
+}
 /* ---------------- anglers (女主角 = original art, 男主角 = rendered 3D stand-in) ---------------- */
 function charInfo(c) {
   const m = (c === 'boy' || c === 'b') && A.man.meta.boy;
@@ -1415,7 +1549,8 @@ const pond = {
 
   enter(p) {
     this.p = p; this.t = 0; this.setState('idle');
-    this.bet = clamp(S.bet[p.id] ?? p.minBet, p.minBet, p.maxBet);
+    this.bet = p.bet ? clamp(S.bet[p.id] ?? 1, 1, BET_MAX) : 1;
+    this.gold = { casts: 0, set: goldCycle(), log: [] }; this.goldCast = false; this._roomAsked = false; this.lureStrike = null; this.N = 0;
     this.shadows = []; this.fish = null; this.float = null; this.lure = null; this.splashes = []; this.fx = [];
     this.view = 'surface'; this.power = 1; this.drops = []; this.uv = null;
     // pick a free spot on the dock, as close to the middle as possible
@@ -1426,11 +1561,11 @@ const pond = {
     CAMX = 0; water.cam = this.camW * 300;
     audio.ambience(.12);
     // a loose school of small fish cruising the shallows
-    const small = Object.keys(p.fish).sort((a, b) => FISH[a].max - FISH[b].max)[0];
+    const small = p.fish.slice().sort((a, b) => FISH[a].max - FISH[b].max)[0];
     this.school = { sp: small, cx: rnd(-3, 3), cz: rnd(5, 9), h: rnd(0, 6.28), fish: Array.from({ length: 7 }, () => ({ ox: rnd(-.9, .9), oz: rnd(-.6, .6), ph: rnd(0, 20), len: rnd(FISH[small].min, FISH[small].max * .7), d: rnd(.2, .6) })) };
     // pull in this pond's species art in the background
-    const sp = Object.keys(p.fish);
-    ensure(sp.flatMap(k => ['anim:fight-' + k, 'anim:land-' + k, 'anim:under-' + k]).concat(['anim:splash', 'anim:underwave', 'img:fight-bed', 'img:fight-surface', 'anim:angry', 'img:victory', 'img:victory-light']));
+    const sp = p.fish;
+    ensure(sp.flatMap(k => ['anim:fight-' + k, 'anim:land-' + k, 'anim:under-' + k]).concat(['anim:splash', 'anim:underwave', 'img:uw-bg', 'img:fight-bed', 'img:fight-surface', 'anim:angry', 'img:victory', 'img:victory-light']));
     ensure(charAssets(S.char).concat(['img:boy-catch', 'img:boy-head']));
     ensure(sp.flatMap(k => ['anim:hang-' + k]).concat(['anim:catchgirl', 'anim:catchwater', 'anim:fireworks', 'img:catch-BG-sky', 'img:catch-BG-water', 'img:catch-BG-shore', 'img:catch-BG-boat', 'img:catch-BG-cloud1', 'img:catch-BG-cloud2', 'img:catch-UI-right-board', 'img:catch-UI-down-board', 'img:win-lightwheel', 'img:catch-win']));
     water.setScene(A.tex['img:' + p.bgKey + '-bg-water'], A.tex['img:' + p.bgKey + '-bg-top']);
@@ -1502,26 +1637,46 @@ const pond = {
   setState(s) { this.st = s; this.stT = 0; },
   rod() { return RODS[S.equip.rod]; },
   isLure() { return this.p.mode === 'lure'; },
+  // species this tackle can catch here, weighted by the bait's 釣獲率 (spec: 裝備-魚餌 / 釣線 / 釣竿)
+  candidates() {
+    const rod = this.rod(), bait = BAITS[S.equip.bait];
+    const byLine = lineFish(S.equip.line, S.equip.rod) || [];
+    if (!bait) return [];
+    return this.p.fish.filter(k => byLine.includes(k) && (bait.rates[k] || 0) > 0 && FISH[k].min <= rod.maxCm).map(k => [k, bait.rates[k]]);
+  },
   tackleOk() {
-    const rod = this.rod();
-    if (this.p.mode === 'lure' && rod.kind === 'pole') return '路亞池需要路亞竿，請到「裝備」更換釣竿。';
-    if (this.p.id <= 2 && rod.kind !== 'pole') return this.p.name + '限用手竿釣組，請到「裝備」更換手竿。';
-    const b = BAITS[S.equip.bait];
-    if (this.p.mode === 'lure' && !(b && b.lure && S.owned.lure.includes(S.equip.bait))) return '請先裝備假餌（可在商店購買）。';
-    if (this.p.mode !== 'lure' && (!b || b.lure)) return '請先裝備魚餌。';
-    if (this.p.mode !== 'lure' && !(S.bait[S.equip.bait] > 0)) return '魚餌用完了，請到商店購買。';
-    if (S.silver < this.bet) return '銀幣不足，無法下注。';
+    const rod = this.rod(), p = this.p, b = BAITS[S.equip.bait];
+    if (!p.rods.includes(rod.kind)) return p.name + (p.mode === 'lure' ? '限用路亞竿，請到「裝備」更換釣竿。' : p.rods.includes('cast') ? '限用手竿或投竿，請到「裝備」更換釣竿。' : '限用手竿，請到「裝備」更換釣竿。');
+    if (!lineFish(S.equip.line, S.equip.rod)) return `${LINES[S.equip.line].name}不適用${rod.name}，請到「裝備」更換釣線。`;
+    if (p.mode !== 'lure' && FLOATS[S.equip.float].kind !== (rod.kind === 'cast' ? 'cast' : 'pole')) return rod.kind === 'cast' ? '投竿要搭配投竿專用浮標（球型或棒型），請到商店購買。' : '手竿要搭配短浮標、長浮標或高感度浮標。';
+    if (p.mode === 'lure' && !(b && b.lure && S.owned.lure.includes(S.equip.bait))) return '請先裝備假餌（可在商店購買）。';
+    if (p.mode !== 'lure' && (!b || b.lure)) return '請先裝備魚餌。';
+    if (!baitFits(S.equip.bait, S.equip.rod)) return `${baitName(S.equip.bait)}不適用${rod.name}（適用：${b.rods.join('、')}）。`;
+    if (p.mode !== 'lure' && !(S.bait[S.equip.bait] > 0)) return '魚餌用完了，請到商店購買。';
+    if (!this.candidates().length) return '這組釣具在' + p.name + '釣不到魚。\n請換魚餌、釣線，或換更長的釣竿（釣竿越長能釣的魚越大）。';
+    if (p.fee.per === 'cast') { const cost = p.bet ? this.bet : p.fee.amt; if ((p.fee.cur === 's' ? S.silver : S.gold) < cost) return p.fee.cur === 's' ? '銀幣不足，無法下注。' : '金幣不足，無法出竿。'; }
+    if (p.fee.per === 'room' && !roomValid(p)) return '釣池時間到了，請重新付費入場。';
     return null;
   },
 
   /* ----- cast ----- */
   startCast(power) {
     const err = this.tackleOk(); if (err) { openModal(messageModal(err, '提示')); this.setState('idle'); return; }
-    S.silver -= this.bet; S.bet[this.p.id] = this.bet;
-    if (this.p.mode !== 'lure') { S.bait[S.equip.bait]--; }
+    const p = this.p;
+    if (p.fee.per === 'cast') { if (p.fee.cur === 's') { S.silver -= this.bet; S.bet[p.id] = this.bet; } else S.gold -= p.fee.amt; }
+    if (p.mode !== 'lure') S.bait[S.equip.bait]--;
+    // the line wears out with every cast (生命值)
+    const ln = LINES[S.equip.line];
+    if (ln.life) {
+      const left = (S.lineLife[S.equip.line] ?? ln.life) - 1; S.lineLife[S.equip.line] = left;
+      if (left <= 0) { const k = S.equip.line; S.owned.line = S.owned.line.filter(x => x !== k); delete S.lineLife[k]; S.equip.line = '2'; say(`${ln.name}用盡了，已換回 2 號線`, 3); }
+    }
+    // 采金魚 bookkeeping (休閒池: 2~4 golden bites in every 100 casts)
+    const g = this.gold; g.casts++; if (g.casts > 100) { g.casts = 1; g.set = goldCycle(); }
+    this.goldCast = p.id === 1 && g.set.has(g.casts);
     save();
     const rod = this.rod();
-    const dist = clamp(rod.cast * (.45 + .55 * power) + rnd(-.6, .6), 3.5, 30);
+    const dist = clamp(2.6 + rod.cast * 2.5 + (power - .5) * 2.2 + rnd(-.5, .5), 3.5, 19);
     const lx = rnd(-1.4, 1.4) + (power - .5) * .6;
     this.cast = { t: 0, dur: .95, to: { x: lx, z: dist } };
     this.setState('cast'); audio.swish();
@@ -1536,23 +1691,31 @@ const pond = {
       this.setState('wait');
       this.planApproach();
     }
-    this.line.L = Math.hypot(to.x, to.z);
+    this.line.L = Math.hypot(to.x, to.z) * 1.6;
   },
 
   /* ----- waiting for a bite ----- */
   pickSpecies() {
-    const bait = BAITS[S.equip.bait] || { likes: {} };
-    const list = Object.entries(this.p.fish).map(([k, w]) => [k, w * (bait.likes[k] ?? .25)]);
-    return weighted(list);
+    const list = this.candidates();
+    // a golden bite goes to a species that carries 采金
+    const goldList = list.filter(([k]) => FISH[k].gold > 0);
+    const golden = (this.goldCast && goldList.length) || (this.p.id !== 1 && goldList.length && this.goldRoll());
+    const sp = weighted(golden ? goldList : list);
+    return { sp, golden: !!golden && FISH[sp].gold > 0 };
+  },
+  // other ponds: at most 12 golden fish in 60 minutes of play
+  goldRoll() {
+    const now = this.t, log = this.gold.log = this.gold.log.filter(x => now - x < 3600);
+    if (log.length >= 12 || Math.random() > .15) return false;
+    log.push(now); return true;
   },
   planApproach() {
-    const bait = BAITS[S.equip.bait] || {}; const line = LINES[S.equip.line];
-    const delay = rnd(2.5, 8) / ((bait.rate ?? 1) * line.bite);
-    const sp = this.pickSpecies();
+    const delay = rnd(2.5, 8);
+    const ch = this.pickSpecies();
     const ang = rnd(0, Math.PI * 2);
-    this.approach = { sp, t: -delay, x: this.float.x + Math.cos(ang) * 3.2, z: this.float.z + Math.sin(ang) * 2.4 + 1, nibbles: rint(0, 3), phase: 'come', pt: 0, heading: 0, alpha: 0, biteT: 0 };
+    this.approach = { sp: ch.sp, golden: ch.golden, t: -delay, x: this.float.x + Math.cos(ang) * 3.2, z: this.float.z + Math.sin(ang) * 2.4 + 1, nibbles: rint(0, 3), phase: 'come', pt: 0, heading: 0, alpha: 0, biteT: 0 };
     // ambient fish passing far away for life in the pond
-    if (Math.random() < .7) this.shadows.push({ sp: pick(Object.keys(this.p.fish)), x: rnd(-6, 6), z: rnd(5, 14), h: rnd(0, Math.PI * 2), v: rnd(.35, .7), life: rnd(8, 14), age: 0, len: 0 });
+    if (Math.random() < .7) this.shadows.push({ sp: pick(this.p.fish), x: rnd(-6, 6), z: rnd(5, 14), h: rnd(0, Math.PI * 2), v: rnd(.35, .7), life: rnd(8, 14), age: 0, len: 0 });
   },
   updateWait(dt) {
     const f = this.float; if (!f) return;
@@ -1562,11 +1725,10 @@ const pond = {
     a.t += dt;
     if (a.t < 0) return;
     const sp = FISH[a.sp];
-    const fl = FLOATS[S.equip.float];
+    const sens = FLOATS[S.equip.float].sens;   // 0 short: only float/sink, 1 long, 2 high sensitivity
     const dx = f.x - a.x, dz = f.z - a.z, d = Math.hypot(dx, dz);
     a.alpha = Math.min(.55, a.alpha + dt * .3);
     if (a.phase === 'come') {
-      // weave in toward the bait with burst-and-glide strokes
       const want = Math.atan2(dz, dx) + Math.sin(a.t * 1.7) * (d > 1 ? .55 : .2);
       let dh = want - a.heading; dh = Math.atan2(Math.sin(dh), Math.cos(dh)); a.heading += clamp(dh, -dt * 2.2, dt * 2.2);
       const v = .5 * sp.speed * (.45 + .55 * Math.max(0, Math.sin(a.t * 2.3)));
@@ -1578,26 +1740,43 @@ const pond = {
       a.x += (f.x - .12 + Math.sin(a.t * 5) * .05 - a.x) * dt * 2; a.z += (f.z + .18 - a.z) * dt * 2; a.spd = .25;
       if (a.pt > rnd(.6, 1.4)) {
         a.pt = 0;
-        if (a.nibbles > 0) { a.nibbles--; f.dip = .35 * fl.warn; const pt = proj(f.x, f.z); water.ripple(pt.x, pt.y, .28); audio.tone(300, .05, 'sine', .08); }
-        else { a.phase = 'bite'; a.biteT = 0; f.dip = 1; const pt = proj(f.x, f.z); water.ripple(pt.x, pt.y, .75); audio.bite(); this.banner = { k: 'get', t: 0 }; try { navigator.vibrate && navigator.vibrate(60); } catch (e) {} }
+        if (a.nibbles > 0) { a.nibbles--; if (sens > 0) { f.dip = .2 + .2 * sens; const pt = proj(f.x, f.z); water.ripple(pt.x, pt.y, .1 + .1 * sens); audio.tone(300, .05, 'sine', .08); } }
+        else {
+          a.phase = 'bite'; a.biteT = 0;
+          // 日鯽 sips the bait: only a high-sensitivity float shows it clearly
+          a.subtle = a.sp === 'crucian' && sens < 2;
+          f.dip = a.subtle ? .45 : 1; const pt = proj(f.x, f.z); water.ripple(pt.x, pt.y, a.subtle ? .3 : .75); audio.bite();
+          this.banner = { k: 'get', t: 0 }; try { navigator.vibrate && navigator.vibrate(60); } catch (e) {}
+        }
       }
     } else if (a.phase === 'bite') {
-      a.biteT += dt; f.sink = Math.min(1, f.sink + dt * 4);
-      if (a.biteT > .95 * fl.win) { a.phase = 'leave'; a.pt = 0; f.sink = 0; this.banner = null; say('魚吃掉餌溜走了…'); if (this.p.mode !== 'lure') { const pt = proj(f.x, f.z); water.ripple(pt.x, pt.y, .5); } }
+      a.biteT += dt; f.sink = Math.min(a.subtle ? .35 : 1, f.sink + dt * 4);
+      if (a.subtle) f.dip = .35 + .15 * Math.sin(a.biteT * 14);
+      if (a.biteT > BITE_WINDOW) { a.phase = 'leave'; a.pt = 0; f.sink = 0; this.banner = null; say('魚吃掉餌溜走了…'); const pt = proj(f.x, f.z); water.ripple(pt.x, pt.y, .5); }
     } else if (a.phase === 'leave') {
       a.pt += dt; a.heading += dt * .2;
       a.x += Math.cos(a.heading + Math.PI) * 1.2 * dt; a.z += Math.sin(a.heading + Math.PI) * 1.2 * dt; a.alpha = Math.max(0, .55 - a.pt * .4);
-      if (a.pt > 2) { this.planApproach(); }
+      if (a.pt > 2) {
+        // the bait is gone: reel in to cast again
+        say('餌被吃掉了，收竿重新拋投'); this.retrieve();
+      }
     }
   },
   strike() { // player taps 揚竿
     const a = this.approach;
-    if (this.st === 'wait' && a && a.phase === 'bite') { this.hook(a.sp); return; }
-    if (this.st === 'wait' && a && a.phase === 'nibble') { say('太早揚竿，魚被嚇跑了！'); }
+    if (this.st === 'wait' && a && a.phase === 'bite') {
+      if (Math.random() < HOOK_RATE) { this.hook(a.sp, null, a.golden); return; }
+      say('揚竿了，可惜沒鉤到！'); audio.lose();
+    } else if (this.st === 'wait' && a && a.phase === 'nibble') say('太早揚竿，魚被嚇跑了！');
+    if (this.lureStrike) {
+      const ls = this.lureStrike; this.lureStrike = null;
+      if (Math.random() < HOOK_RATE) { this.hook(ls.sp, { x: ls.x, z: ls.z }, ls.golden); return; }
+      say('揚竿了，可惜沒鉤到！'); audio.lose();
+    }
     this.retrieve();
   },
   retrieve() {
-    this.float = null; this.approach = null; this.lure = null; this.banner = null;
+    this.float = null; this.approach = null; this.lure = null; this.banner = null; this.lureStrike = null;
     audio.swish(); this.setState('idle');
   },
 
@@ -1606,126 +1785,129 @@ const pond = {
     const L = this.lure; if (!L) return;
     const bait = BAITS[S.equip.bait];
     const r = this.reel;
-    const sp = r * 1.5 * this.rod().power;
+    const sp = r * 1.6;
+    if (this.lureStrike) {
+      // a fish hit the lure: 揚竿 within three seconds
+      const ls = this.lureStrike; ls.t += dt;
+      if (ls.t > BITE_WINDOW) { this.lureStrike = null; this.banner = null; say('魚吐掉假餌跑了…'); }
+      return;
+    }
     if (sp > 0) { const d = Math.hypot(L.x, L.z); L.x -= L.x / d * sp * dt; L.z -= L.z / d * sp * dt; }
     L.depth = lerp(L.depth, r > .05 ? .4 : 1, dt);
     L.wob += dt * (4 + r * 10);
-    this.line.L = Math.hypot(L.x, L.z);
-    // fish chase likes a retrieve near the lure's sweet speed
+    this.line.L = Math.hypot(L.x, L.z) * 1.6;
+    // fish chase a retrieve near the lure's sweet speed
     const ideal = bait.speed ?? .5;
     const quality = Math.max(0, 1 - Math.abs(r - ideal) / .55) * (r > .05 ? 1 : .15);
     L.interest += (quality * .6 - .08) * dt;
     L.interest = clamp(L.interest, 0, 1.2);
     if (r > .05 && Math.random() < .02) { const pt = proj(L.x, L.z); water.ripple(pt.x, pt.y, .12); }
     if (L.interest > 1 && Math.random() < dt * 1.6) {
-      const sp2 = this.pickSpecies(); const pt = proj(L.x, L.z);
+      const ch = this.pickSpecies(); const pt = proj(L.x, L.z);
       water.ripple(pt.x, pt.y, 1); this.addSplash(pt.x, pt.y, pt.f, 1); audio.splash(.7); audio.bite();
-      this.banner = { k: 'get', t: 0 };
-      this.hook(sp2, { x: L.x, z: L.z });
+      this.banner = { k: 'get', t: 0 }; try { navigator.vibrate && navigator.vibrate(60); } catch (e) {}
+      this.lureStrike = { t: 0, sp: ch.sp, golden: ch.golden, x: L.x, z: L.z };
       return;
     }
     if (L.z < 1.2) { say('收線完成，再拋一次吧！'); this.retrieve(); }
   },
 
-  /* ----- fight ----- */
-  hook(spKey, at) {
-    const sp = FISH[spKey];
+  /* ----- fight (spec: 釣力值 P, 魚力值 F, 體力值 U, 承受力 S) ----- */
+  hook(spKey, at, golden) {
+    const sp = FISH[spKey], rod = this.rod();
     ensure(['anim:fight-' + spKey, 'anim:under-' + spKey, 'anim:land-' + spKey, 'anim:hang-' + spKey]);
-    // size skewed toward small; rare trophies
-    const r = Math.pow(Math.random(), 1.7);
-    const len = Math.round(lerp(sp.min, sp.max, r) * 10) / 10;
-    const size = (len - sp.min) / (sp.max - sp.min);
+    // size: random up to what this rod can bring in, skewed small (rare trophies)
+    const hi = Math.min(sp.max, rod.maxCm), r = Math.pow(Math.random(), 1.7);
+    const len = Math.round(lerp(sp.min, Math.max(sp.min, hi), r) * 10) / 10;
+    const band = fishBand(spKey, len);
     const pos = at || (this.float ? { x: this.float.x, z: this.float.z } : { x: 0, z: 8 });
+    const ln = LINES[S.equip.line], lifeLeft = ln.life ? (S.lineLife[S.equip.line] ?? ln.life) : 99;
     this.fish = {
-      sp: spKey, len, size, x: pos.x, z: pos.z, h: Math.PI / 2, life: 1, stam: 1, run: 0, runT: rnd(1, 3), turnT: 0,
-      target: rnd(-Math.PI, Math.PI), anim: 0, thrash: 0, angry: 0, under: 0, dirFrame: 0, near: 0,
-      force: sp.pull * (.62 + .9 * size) * (1 + .6 * (sp.stam - 1)),
+      sp: spKey, len, size: clamp((len - sp.min) / Math.max(1, sp.max - sp.min), 0, 1), golden: !!golden,
+      Fmax: band[2], F: band[2] * .6, U0: band[3], U: band[3], ep: band[4], t: 0,
+      x: pos.x, z: pos.z, h: Math.PI / 2, th: rnd(0, 6.28), anim: 0, depth: 0, run: 0, rageT: rnd(2, 4), rageDur: 1.4, angry: 0, thrash: 0, life: 1,
+      ux: 0, uy: .05, face: -1, phase: 'surface',
+      // a worn line (生命值 1~5) may snap on its own during the fight
+      weakAt: lifeLeft <= 5 && Math.random() < .5 ? rnd(3, 14) : null,
     };
-    this.line.L = Math.hypot(pos.x, pos.z) + .3; this.line.T = .3; this.line.Td = .3; this.line.brk = 0; this.line.slack = 0;
-    this.float = null; this.approach = null; this.lure = null;
-    this.power = 1;
+    this.line.L = Math.max(4, Math.hypot(pos.x, pos.z) * 1.6); this.line.T = .2; this.line.Td = .2; this.line.brk = 0;
+    this.N = 0; this.lastPress = T; this.pressT0 = null;
+    this.float = null; this.approach = null; this.lure = null; this.lureStrike = null;
     this.setState('hookset');
-    this.view = 'under'; this.cine = 1.6; this.uv = null; this.sand = []; // the fight is shown under water (toggle 水上/水下)
+    this.view = 'surface'; this.cine = 1.6; this.uv = null; this.sand = []; // thrashes on top first; >40 cm fights continue under water
+    if (golden) { this.banner = { k: 'gold', t: 0 }; audio.coin(); }
     audio.splash(1);
   },
+  // 魚力值波幅: mid-level pull with rage peaks that fade as the fish tires, then low at the end
+  fishForce(F, dt) {
+    const p = 1 - F.U / F.U0;
+    const base = p < .8 ? lerp(.62, .5, p / .8) : lerp(.5, .12, (p - .8) / .2);
+    F.rageT -= dt;
+    if (F.run <= 0 && F.rageT <= 0 && p < .85 && F.U > 0) { F.run = F.rageDur = rnd(1.1, 1.8); F.rageT = rnd(6, 11); F.angry = 1; this.camShake = .4; audio.splash(.5 + F.size * .6); }
+    let v = base;
+    if (F.run > 0) { F.run -= dt; const k = 1 - F.run / F.rageDur; v = base + (1 - .3 * p - base) * Math.sin(Math.PI * clamp(k, 0, 1)); }
+    v += (Math.random() - .5) * .04;
+    return F.U <= 0 ? Math.min(8, F.Fmax * .1) : Math.max(1, F.Fmax * v);
+  },
   updateFight(dt) {
-    const F = this.fish, sp = FISH[F.sp], line = LINES[S.equip.line], rod = this.rod();
-    // fish behaviour
-    F.anim += dt * (6 + (F.spd || .6) * 9);
-    F.turnT -= dt; F.runT -= dt; F.jumpCD = (F.jumpCD ?? rnd(2, 4)) - dt;
-    if (F.runT <= 0 && F.run <= 0 && F.stam > .2) { F.run = rnd(1.2, 2.6) * (.6 + F.stam * .6); F.target = Math.atan2(rnd(.4, 1), rnd(-1, 1)) + (Math.random() < .5 ? 0 : rnd(-.8, .8)); F.angry = 1; audio.splash(.5 + F.size * .6); this.camShake = .4; }
-    if (F.run > 0) { F.run -= dt; if (F.run <= 0) F.runT = rnd(2, 5) / (.5 + F.stam); }
-    if (F.turnT <= 0 && F.run <= 0) { F.turnT = rnd(.8, 2.2); F.target = rnd(0, Math.PI * 2); }
-    // steer: keep inside pond, prefer away from the dock
-    if (F.z < 2.5) F.target = Math.PI / 2 + rnd(-.6, .6);
-    if (Math.abs(F.x) > 7) F.target = Math.atan2(rnd(-.2, .5), -Math.sign(F.x));
-    let dh = F.target - F.h; dh = Math.atan2(Math.sin(dh), Math.cos(dh));
-    F.h += clamp(dh, -dt * 2.4, dt * 2.4);
-    const spd = sp.speed * (F.run > 0 ? 2.1 : .7) * (.3 + .7 * F.stam) * (.3 + .7 * F.life);
-    F.spd = spd;
-    // depth: dives on runs, rises as it tires
-    const wantDepth = F.run > 0 ? .8 : F.life < .3 ? .02 : .35 + .2 * Math.sin(this.t * .7);
-    F.depth = lerp(F.depth ?? .5, wantDepth, clamp(dt * .9, 0, 1));
-    // surface wake when it races near the top
-    F.wakeT = (F.wakeT || 0) - dt;
-    if (spd > 1 && F.depth < .45 && F.wakeT <= 0) { F.wakeT = .14; const wp = proj(F.x, F.z); water.ripple(wp.x, wp.y, .16 + .1 * F.size); }
-    // jumpers leap clear of the water on a run; the rest thrash on top when tired
-    if (!F.jump && F.jumpCD <= 0 && F.depth < .55 && ((JUMPERS.has(F.sp) && F.run > 0) || (F.life < .35 && Math.random() < dt * .4))) {
-      const pt0 = proj(F.x, F.z);
-      F.jump = { t: 0, dur: .8 + F.size * .3, x0: pt0.x, y0: pt0.y, dir: Math.cos(F.h) >= 0 ? 1 : -1, dx: (60 + F.size * 90) * pt0.f * 2.4, hgt: (90 + F.size * 120) * pt0.f * 2.2, full: JUMPERS.has(F.sp) };
-      F.jumpCD = rnd(4, 8);
-      this.spray(pt0.x, pt0.y, 14 + F.size * 16, pt0.f * 2.4); water.ripple(pt0.x, pt0.y, 1); audio.splash(.8 + F.size * .5);
+    const F = this.fish, sp = FISH[F.sp], rod = this.rod(), S_ = LINES[S.equip.line].S;
+    F.t += dt;
+    F.F = this.fishForce(F, dt);
+    const Pv = Math.max(0, this.N) * 10;                         // 釣力值 P (0-100)
+    const Feff = this.N < 0 ? F.F * (1 + this.N * .12) : F.F;   // letting line out eases the pull
+    this.P = Pv;
+    // 斷線：P + F > S
+    const ten = (Pv + Feff) / S_;
+    this.line.T = ten; this.line.Td = lerp(this.line.Td, ten, clamp(dt * 6, 0, 1));
+    if (Pv + Feff > S_) { this.line.brk += dt; if (this.line.brk > .3) return this.lose('broken'); } else this.line.brk = Math.max(0, this.line.brk - dt);
+    if (F.weakAt !== null && F.t > F.weakAt) return this.lose('broken');
+    // 體力值：每秒扣掉 P/10
+    F.U = Math.max(0, F.U - Pv / 10 * dt);
+    F.life = F.U / F.U0;
+    // line length: the fish takes line, reeling takes it back
+    if (F.U > 0) {
+      this.line.L = Math.max(3, this.line.L + (F.F * .04 - Pv * .045 + (this.N < 0 ? -this.N * .3 : 0)) * dt);
+      if (this.line.L > rod.line) return this.lose('runaway');          // 線全部被拉完
+    } else this.line.L = Math.max(0, this.line.L - (1.6 + Pv * .03) * dt);  // exhausted: bring it in
+    // 魚脫逃：大約 7 秒沒按收線
+    if (F.U > 0 && T - this.lastPress > 7) return this.lose('runaway');
+    // movement
+    F.anim += dt * (6 + (F.run > 0 ? 14 : 5));
+    F.angry = Math.max(0, F.angry - dt * .6);
+    const zc = clamp(this.line.L / 1.6, 1.4, 22);
+    if (F.phase === 'surface') {
+      // figure-eight in front of the dock (spec: 魚在水面的移動路徑)
+      F.th += dt * (F.run > 0 ? 2.3 : .8) * (F.U > 0 ? 1 : .3);
+      const A = F.U > 0 ? 2.4 : 2.4 * clamp(this.line.L / 10, 0, 1);
+      const nx = A * Math.sin(F.th), nz = zc + 1.1 * Math.sin(F.th) * Math.cos(F.th);
+      const k = clamp(dt * 2.5, 0, 1), sx = lerp(F.x, nx, k), sz = lerp(F.z, nz, k);
+      if (Math.hypot(sx - F.x, sz - F.z) > 1e-4) F.h = Math.atan2(sz - F.z, sx - F.x); F.x = sx; F.z = sz;
+      F.depth = F.run > 0 ? .1 : .3;
+    } else {
+      // under water (spec): dive to the bottom, sprint left when raging, drift right when tired,
+      // and once spent get dragged slowly to the surface at the upper right
+      if (F.U > 0) {
+        F.ux += (F.run > 0 ? -260 * sp.speed : 70) * dt;
+        F.uy = lerp(F.uy, F.run > 0 ? .62 : .8, clamp(dt * 1.2, 0, 1));
+        F.face = F.run > 0 ? -1 : 1;
+      } else { F.ux += 90 * dt; F.uy = Math.max(.05, F.uy - .16 * dt); F.face = 1; }
+      F.depth = F.uy; F.z = zc; F.x = lerp(F.x, 0, dt * .3);
     }
-    if (F.jump) {
-      F.jump.t += dt;
-      if (F.jump.t >= F.jump.dur) {
-        const J = F.jump; const ex = J.x0 + J.dir * J.dx; const pt1 = proj(F.x, F.z);
-        this.spray(ex, J.y0, 20 + F.size * 20, pt1.f * 2.6); this.addSplash(ex, J.y0, pt1.f * (1 + F.size), 1); water.ripple(ex, J.y0, 1.2); audio.splash(1 + F.size * .6);
-        F.jump = null;
+    F.spd = F.run > 0 ? 2 : .7;
+    // surface splashes while it fights on top
+    if (F.phase === 'surface' || this.view === 'surface') {
+      F.thrash -= dt;
+      if (F.thrash <= 0) {
+        F.thrash = F.run > 0 ? rnd(.15, .4) : rnd(.5, 1.2); const pt = proj(F.x, F.z);
+        water.ripple(pt.x, pt.y, .3 + .5 * F.size);
+        if (F.run > 0 || Math.random() < .3) { this.addSplash(pt.x, pt.y, pt.f * (.7 + F.size * .7), .6); this.spray(pt.x, pt.y, 6 + F.size * 8, pt.f * 1.6); }
       }
     }
-    let nx = F.x + Math.cos(F.h) * spd * dt, nz = F.z + Math.sin(F.h) * spd * dt;
-    // forces: fish pull vs. reel. Line pays out when the fish wins, comes in when you win.
-    const pump = this.pump && this.power > .02;
-    const tip = { x: .45, z: .3 };
-    const dist = Math.hypot(nx - tip.x, nz - tip.z);
-    const away = Math.cos(F.h - Math.atan2(nz - tip.z, nx - tip.x));
-    const Fp = F.force * (F.run > 0 ? 1.7 : 1) * (.35 + .65 * F.stam) * (.4 + .6 * F.life);
-    const R = this.reel * .5 * rod.power * (pump ? 1.6 : 1);
-    let Traw;
-    if (dist < this.line.L - .05) {           // slack: the fish swam toward us
-      this.line.L = Math.max(dist, this.line.L - this.reel * 2.2 * rod.power * dt);
-      Traw = (this.reel * .08 + .02) / line.b;
-    } else {
-      const pullComp = Fp * clamp(.45 + .55 * away, .05, 1);
-      const dL = -this.reel * .35 * rod.power + (pullComp - R) * 1.2;
-      this.line.L = Math.max(0, this.line.L + dL * dt);
-      Traw = (pullComp + R * .8) / line.b + (F.jump ? .12 : 0);
-      if (Traw > .9) { this.line.L += (Traw - .9) * 1.5 * dt; Traw = .9 + (Traw - .9) * (this.reel > .05 ? .75 : .35); }
-      const k = this.line.L / Math.max(dist, .01); nx = tip.x + (nx - tip.x) * k; nz = tip.z + (nz - tip.z) * k;
-    }
-    F.x = nx; F.z = nz;
-    this.line.T = lerp(this.line.T, Traw, clamp(dt * 9, 0, 1));
-    this.line.Td = lerp(this.line.Td, this.line.T, clamp(dt * 5, 0, 1));
-    // fatigue
-    const T = this.line.T;
-    F.life = Math.max(0, F.life - dt * T * (pump ? .16 : .1) * (1.2 - F.size * .3) / sp.stam);
-    F.stam = clamp(F.stam - dt * (F.run > 0 ? .08 : .015) + (T < .2 ? dt * .03 : 0), 0, 1);
-    this.power = clamp(this.power + (pump ? -dt * .38 : dt * .14), 0, 1);
-    F.angry = Math.max(0, F.angry - dt * .6);
-    F.thrash -= dt;
-    if (F.thrash <= 0) {
-      F.thrash = rnd(.25, .9) / (.3 + F.stam); const pt = proj(F.x, F.z);
-      const top = 1 - F.depth;
-      water.ripple(pt.x, pt.y, (.3 + .5 * F.size) * (.4 + top));
-      if ((F.run > 0 || Math.random() < .35) && F.depth < .5) { this.addSplash(pt.x, pt.y, pt.f * (.7 + F.size * .7), .6 * top); this.spray(pt.x, pt.y, 6 + F.size * 8, pt.f * 1.6); }
-    }
-    if (T > .65) audio.creak(T);
-    if (this.reel > .05) audio.reel(this.reel);
-    // outcomes
-    if (T > 1) { this.line.brk += dt; if (this.line.brk > .32) return this.lose('broken'); } else this.line.brk = Math.max(0, this.line.brk - dt);
-    if (T < .07 && F.life > .2) { this.line.slack += dt; if (this.line.slack > 3) return this.lose('runaway'); } else this.line.slack = Math.max(0, this.line.slack - dt * 2);
-    if (this.line.L < 1.25) this.land();
+    if (ten > .75) audio.creak(ten);
+    if (Pv > 0) audio.reel(Pv / 100);
+    // the end of the fight
+    if (F.phase === 'under' && F.U <= 0 && F.uy <= .08) { F.phase = 'surface'; this.view = 'surface'; F.x = .6; F.z = 2.4; this.line.L = 2.4; }
+    if (F.U <= 0 && (F.phase === 'surface') && this.line.L <= 2.5) this.land();
   },
   lose(why) {
     this.setState('lost'); this.loseWhy = why; this.view = 'surface';
@@ -1736,33 +1918,43 @@ const pond = {
   },
   land() { this.setState('land'); this.view = 'surface'; audio.splash(1.1); },
 
-  /* ----- input / controls ----- */
+  /* ----- input: 收線按鈕 (spec: tap = one notch up, hold = climbs, 2 s idle = drops one notch a second) ----- */
   readControls(dt) {
-    // reel wheel: rotate the handle around the reel (clockwise), hold to auto-reel, or keyboard
-    const cx = 360, cy = 1130, R = 118;
-    const w = this.wheel; let rate = 0;
+    const cx = 360, cy = 1130, Rr = 118;
+    const w = this.wheel;
+    const fighting = this.st === 'fight' || this.st === 'hookset';
+    // reel handle: rotating it clockwise also reels (lure retrieve uses this)
     const onWheel = ACTIVE_LAYER === 0 && P.down && P.cap === 'wheel';
-    if (ACTIVE_LAYER === 0 && P.justDown && Math.hypot(P.dx - cx, P.dy - cy) < R + 30 && Math.hypot(P.dx - cx, P.dy - cy) > 52) P.cap = 'wheel';
+    if (ACTIVE_LAYER === 0 && P.justDown && Math.hypot(P.dx - cx, P.dy - cy) < Rr + 30 && Math.hypot(P.dx - cx, P.dy - cy) > 58) P.cap = 'wheel';
+    let spin = 0;
     if (onWheel) {
       const a = Math.atan2(P.y - cy, P.x - cx);
-      if (w.last !== null) { let da = a - w.last; da = Math.atan2(Math.sin(da), Math.cos(da)); if (da > 0) { w.spin += da; w.ang += da; } else w.ang += da * .2; }
-      w.last = a; w.hold += dt;
-    } else { w.last = null; w.hold = 0; }
-    w.vel = lerp(w.vel || 0, w.spin / Math.max(dt, .001), clamp(dt * 8, 0, 1)); w.spin = 0;
-    rate = clamp(w.vel / (Math.PI * 2 * 1.6), 0, 1);
-    if (onWheel && w.hold > .2 && rate < .5) rate = Math.max(rate, .55);
+      if (w.last !== null) { let da = a - w.last; da = Math.atan2(Math.sin(da), Math.cos(da)); if (da > 0) { spin = da; w.ang += da; } else w.ang += da * .2; }
+      w.last = a;
+    } else w.last = null;
+    w.vel = lerp(w.vel || 0, spin / Math.max(dt, .001), clamp(dt * 8, 0, 1));
+    let rate = clamp(w.vel / (Math.PI * 2 * 1.6), 0, 1);
     if (keys.Space || keys.ArrowDown || keys.KeyS) { rate = Math.max(rate, .75); w.ang += dt * 7; }
     if (!onWheel && rate > 0) w.ang += rate * dt * 9;
     this.reel = rate;
-    const pumpHeld = (ACTIVE_LAYER === 0 && P.down && P.cap === 'pump') || keys.ShiftLeft || keys.ShiftRight || keys.ArrowUp || keys.KeyW;
-    this.pump = !!pumpHeld;
+    if (!fighting) return;
+    // 力 button in the reel's centre
+    const btnHeld = ACTIVE_LAYER === 0 && P.down && P.cap === 'pump';
+    const keyHeld = keys.Space || keys.ArrowUp || keys.KeyW;
+    const pressed = btnHeld || keyHeld;
+    if (pressed && !this._pressed) { this.N = Math.min(10, Math.floor(this.N + 1e-6) + 1); this.pressT0 = T; this.lastPress = T; audio.tone(520 + this.N * 40, .04, 'square', .05); }
+    if (pressed) { this.lastPress = T; if (T - this.pressT0 > .35) this.N = Math.min(10, this.N + dt); }
+    if (spin > 0) { this.N = Math.min(10, this.N + spin / (Math.PI * 2)); this.lastPress = T; }
+    this._pressed = pressed;
+    if (T - this.lastPress > 2) this.N = Math.max(-5, this.N - dt);
+    this.pump = pressed;
   },
 
   update(dt) {
     this.t += dt; this.stT += dt;
     this.updateDock(dt);
     this.camShake = Math.max(0, this.camShake - dt);
-    if (this.banner) { this.banner.t += dt; if (this.banner.t > 1.4) this.banner = null; }
+    if (this.banner) { this.banner.t += dt; if (this.banner.t > (this.banner.k === 'gold' ? 2 : 1.4)) this.banner = null; }
     // ambient fish
     for (const s of this.shadows) { s.age += dt; s.h += Math.sin(this.t * .3 + s.z) * dt * .2; s.x += Math.cos(s.h) * s.v * dt; s.z += Math.sin(s.h) * s.v * dt; }
     this.shadows = this.shadows.filter(s => s.age < s.life && s.z > 2);
@@ -1775,11 +1967,12 @@ const pond = {
       sc.h += Math.sin(this.t * .23) * dt * .35;
       if (sc.cz < 4 || sc.cz > 15 || Math.abs(sc.cx) > 6) sc.h = Math.atan2(10 - sc.cz, -sc.cx);
       sc.cx += Math.cos(sc.h) * .35 * dt; sc.cz += Math.sin(sc.h) * .35 * dt;
-      // scatter when a hooked fish thrashes nearby
       if (this.fish && Math.hypot(this.fish.x - sc.cx, this.fish.z - sc.cz) < 2.5) { sc.h = Math.atan2(sc.cz - this.fish.z, sc.cx - this.fish.x); sc.cx += Math.cos(sc.h) * 1.4 * dt; sc.cz += Math.sin(sc.h) * 1.4 * dt; }
     }
     if (Math.random() < dt * .18) { const z = rnd(4, 18), x = rnd(-5, 5), pt = proj(x, z); water.ripple(pt.x, pt.y, rnd(.12, .28)); }
     this.friendRipples(dt);
+    // room fee ran out (路亞池 / 戰鬥池): ask once the line is in
+    if (this.p.fee.per === 'room' && this.st === 'idle' && !roomValid(this.p) && !modals.length && !this._roomAsked) { this._roomAsked = true; openModal(roomModal(this.p, true)); }
 
     const st = this.st;
     if (st === 'aim') {
@@ -1795,22 +1988,28 @@ const pond = {
     if (st === 'lure') this.updateLure(dt);
     if (st === 'hookset') {
       this.cine -= dt;
-      if (this.cine <= 0) { this.view = S.uw === false ? 'surface' : 'under'; this.setState('fight'); }
-      else this.updateFight(dt * .5);
+      this.updateFight(dt);
+      if (this.st === 'hookset' && this.cine <= 0) {
+        const F = this.fish;
+        // 只有魚的尺寸大於 40 公分時才會進入水下視角
+        if (F.len > 40) { F.phase = 'under'; F.ux = 0; F.uy = .1; this.view = S.uw === false ? 'surface' : 'under'; }
+        this.setState('fight');
+      }
     }
     if (st === 'fight') this.updateFight(dt);
     if (st === 'lost' && this.stT > 2.2) { this.fish = null; this.setState('idle'); }
-    if (st === 'land' && this.stT > 2.6) this.finishCatch();
+    if (st === 'land' && this.stT > 2.8) this.finishCatch();
   },
   finishCatch() {
     const F = this.fish; const sp = FISH[F.sp];
-    const kg = Math.round(sp.wk * Math.pow(F.len, 3) / 1000 * 100) / 100;
-    const stars = F.size < .2 ? 1 : F.size < .45 ? 2 : F.size < .7 ? 3 : F.size < .9 ? 4 : 5;
-    const silver = Math.round(sp.value * (.6 + 1.6 * F.size) * this.bet * (1 + (stars - 1) * .15));
-    const gold = stars >= 5 ? rint(1, 3) : (stars >= 4 && Math.random() < .3 ? 1 : 0);
-    const ep = Math.round(sp.value * (1 + F.size) * 1.5 + 4);
+    const kg = fishKg(F.sp, F.len);
+    // 星等: landed within U/2, U/3, U/4, U/5 seconds
+    const t = F.t, U = F.U0;
+    const stars = t <= U / 5 ? 5 : t <= U / 4 ? 4 : t <= U / 3 ? 3 : t <= U / 2 ? 2 : 1;
+    const silver = Math.max(1, Math.round(sp.silver(F.len) * (this.p.bet ? this.bet : 1)));
+    const gold = F.golden ? sp.gold : 0;
     const rec = S.records[F.sp] || 0;
-    const result = { sp: F.sp, len: F.len, kg, stars, silver, gold, ep, record: Math.max(rec, F.len), newRecord: F.len > rec, pond: this.p.id };
+    const result = { sp: F.sp, len: F.len, kg, stars, silver, gold, ep: F.ep, golden: F.golden, record: Math.max(rec, F.len), newRecord: F.len > rec, pond: this.p.id, secs: Math.round(t) };
     this.fish = null; this.setState('idle');
     go(catchScene, result);
   },
@@ -1886,7 +2085,10 @@ const pond = {
     const a = this.approach;
     if (a && a.t > 0 && this.st === 'wait') this.fishUW(a.sp, a.x, a.z, a.heading, (FISH[a.sp].min + FISH[a.sp].max) * .55, Math.min(1, a.alpha * 1.8), this.t * (6 + (a.spd || .4) * 14), a.phase === 'bite' ? .1 : .3);
     const F = this.fish;
-    if (F && (this.st === 'fight' || this.st === 'hookset') && !(F.jump && F.jump.full)) this.fishUW(F.sp, F.x, F.z, F.h, F.len * 1.25, 1, F.anim, F.depth ?? .4);
+    if (F && (this.st === 'fight' || this.st === 'hookset') && !(F.jump && F.jump.full)) {
+      if (F.golden) { const pt = proj(F.x, F.z); c.save(); c.globalCompositeOperation = 'lighter'; const g = c.createRadialGradient(pt.x, pt.y, 4, pt.x, pt.y, 90 * pt.f); g.addColorStop(0, 'rgba(255,215,80,.55)'); g.addColorStop(1, 'rgba(255,200,40,0)'); c.fillStyle = g; c.fillRect(pt.x - 100, pt.y - 100, 200, 200); c.restore(); }
+      this.fishUW(F.sp, F.x, F.z, F.h, F.len * 1.25, 1, F.anim, F.phase === 'under' ? .7 : F.depth ?? .4);
+    }
     if (this.lure && this.st === 'lure') {
       const L = this.lure; const pt = proj(L.x, L.z);
       const key = (BAITS[S.equip.bait] || {}).lure || 'fishing/lure-spoon';
@@ -2052,16 +2254,36 @@ const pond = {
     }
     ctx.restore();
   },
+  // 撈魚: the angler scoops the tired fish out with a landing net
   drawLandingFish() {
     const F = this.fish; if (!F) return;
-    const t = this.stT;
-    const s = clamp(.9 + F.size * .9, .9, 2.2);
-    const u = easeInOut(clamp(t / 1.1, 0, 1));
-    const x = lerp(390, 205, u), y = lerp(720, 905, u) - Math.sin(u * Math.PI) * 150;
-    if (t < .5 && Math.random() < .5) water.ripple(400, 770, .55);
-    if (t < .35) this.addSplash(400, 780, s * .7, .9);
-    this.landAt = [x, y - 60 * s];
-    frame('land-' + F.sp, t * 18, x, y, { s, ax: .5, ay: .5 });
+    const t = this.stT, dx = -CAMX * 300;
+    const n = A.man.anim['under-' + F.sp];
+    const fwid = clamp(F.len * 4.2, 120, 330), s = n ? fwid / n.fw : 1;
+    const water0 = [250 + dx, 880];
+    const dip = easeInOut(clamp(t / .7, 0, 1)), lift = easeInOut(clamp((t - .8) / .7, 0, 1));
+    const hoop = [lerp(330 + dx, water0[0], dip) - lift * 30, lerp(990, water0[1] + 8, dip) - lift * 150];
+    const fish = t < .8 ? [water0[0] + Math.sin(t * 9) * 8, water0[1] - 6] : [hoop[0], hoop[1] + 24];
+    if (t < .9 && Math.random() < .5) { water.ripple(water0[0], water0[1], .45); if (Math.random() < .3) this.addSplash(water0[0], water0[1], .8, .7); }
+    if (t > .8 && t < 1.1 && Math.random() < .6) this.drops.push({ x: hoop[0] + rnd(-40, 40), y: hoop[1] + 30, vx: rnd(-20, 20), vy: rnd(0, 60), r: rnd(1, 2.5), t: 0, floor: water0[1], cam: water.cam });
+    this.landAt = [fish[0] + fwid * .4, fish[1]];
+    // pole from the angler's free hand
+    const hand = [338 + dx, 1000];
+    ctx.save(); ctx.lineCap = 'round';
+    ctx.strokeStyle = '#3b2a18'; ctx.lineWidth = 7; ctx.beginPath(); ctx.moveTo(hand[0] + 20, hand[1] + 40); ctx.lineTo(hoop[0] + 66, hoop[1]); ctx.stroke();
+    ctx.strokeStyle = '#8a6a3a'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(hand[0] + 20, hand[1] + 40); ctx.lineTo(hoop[0] + 66, hoop[1]); ctx.stroke();
+    ctx.restore();
+    // the fish (lying in the net once lifted)
+    if (n) frame('under-' + F.sp, F.anim * 1.4, fish[0], fish[1], { s, ax: .5, ay: .55, rot: t < .8 ? Math.sin(t * 12) * .2 : .35 + Math.sin(t * 7) * .08, flip: true });
+    // net bag and hoop
+    ctx.save();
+    const bag = 26 + lift * 46;
+    ctx.beginPath(); ctx.moveTo(hoop[0] - 66, hoop[1]); ctx.quadraticCurveTo(hoop[0] - 50, hoop[1] + bag * 1.6, hoop[0], hoop[1] + bag * 1.7); ctx.quadraticCurveTo(hoop[0] + 50, hoop[1] + bag * 1.6, hoop[0] + 66, hoop[1]); ctx.closePath();
+    ctx.fillStyle = 'rgba(30,40,40,.18)'; ctx.fill(); ctx.clip();
+    ctx.strokeStyle = 'rgba(230,235,225,.55)'; ctx.lineWidth = 1;
+    for (let i = -10; i <= 10; i++) { ctx.beginPath(); ctx.moveTo(hoop[0] + i * 9, hoop[1] - 5); ctx.lineTo(hoop[0] + i * 9 + 60, hoop[1] + 120); ctx.stroke(); ctx.beginPath(); ctx.moveTo(hoop[0] + i * 9, hoop[1] - 5); ctx.lineTo(hoop[0] + i * 9 - 60, hoop[1] + 120); ctx.stroke(); }
+    ctx.restore();
+    ctx.save(); ctx.strokeStyle = '#c9ced4'; ctx.lineWidth = 4; ctx.beginPath(); ctx.ellipse(hoop[0], hoop[1], 66, 22, 0, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
   },
   drawVictory() {
     const t = this.stT;
@@ -2073,87 +2295,64 @@ const pond = {
       if (!this._won) { this._won = true; audio.win(); }
     } else this._won = false;
   },
-  // The fight seen under water: a camera in the lake looking out from the dock, following the hooked fish.
+  // The fight seen under water (official background). Spec path: dive to the bottom, sprint left when raging,
+  // drift right when tired, and when spent get dragged slowly to the surface at the upper right.
   drawUnder() {
     const F = this.fish, dt = DTF, t = this.t;
-    const U = this.uv || (this.uv = { x: 360, y: 600, face: F && Math.cos(F.h) < 0 ? -1 : 1, turn: -1, vy: 0, cam: F ? clamp(F.x, -6, 6) : 0 });
-    if (F) U.cam = lerp(U.cam, clamp(F.x, -6, 6), clamp(dt * 1.1, 0, 1));
-    const PX = 90, par = k => -U.cam * PX * k;          // parallax: far layers move less
-    if (!this.weeds) {
-      this.weeds = Array.from({ length: 34 }, (_, i) => ({ x: rnd(-1300, 1300), h: rnd(80, 280), w: rnd(7, 16), ph: rnd(6.28), near: i % 3 === 0, c: pick(['#1f4a2c', '#2a5a30', '#1a3f2a', '#35632f']) }));
-      this.rocks = Array.from({ length: 9 }, () => ({ x: rnd(-1300, 1300), r: rnd(30, 80), near: Math.random() < .4 }));
-    }
-    // water body
-    const m = A.man.anim.underwave;
-    if (m) frame('underwave', t * 10, 360 + clamp(par(.15), -70, 70), 640, { s: 1.22, ax: .5, ay: .5 });
-    else { ctx.fillStyle = '#0d4a3e'; ctx.fillRect(0, 0, LW, LH); }
-    const dg = ctx.createLinearGradient(0, 0, 0, LH);
-    dg.addColorStop(0, 'rgba(120,220,200,.18)'); dg.addColorStop(.35, 'rgba(10,80,70,0)'); dg.addColorStop(1, 'rgba(0,22,20,.55)');
-    ctx.fillStyle = dg; ctx.fillRect(0, 0, LW, LH);
-    // the surface seen from below (Snell's window brightening overhead)
-    const sw = ctx.createRadialGradient(360 + par(.3), -120, 40, 360 + par(.3), -120, 560);
-    sw.addColorStop(0, 'rgba(220,255,240,.45)'); sw.addColorStop(1, 'rgba(220,255,240,0)');
-    ctx.fillStyle = sw; ctx.fillRect(0, 0, LW, 520);
-    img('fight-surface', -((((t * 30 - par(.5)) % 560) + 560) % 560), 0, { w: 1280 * 1.1, h: 160 });
-    // light shafts
+    const BG = A.man.img['uw-bg'], bgW = BG ? BG.w : 2560;     // 2560 x 1280 logical
+    const U = this.uv || (this.uv = { cam: F ? F.ux : 0, x: 360, y: 300, vy: 0, turn: -1, face: F ? F.face : -1 });
+    if (F) U.cam = lerp(U.cam, F.ux, clamp(dt * 1.6, 0, 1));
+    const camX = U.cam - 360;
+    // background: the official lake, mirrored side by side so the fish can swim on
+    if (BG && A.tex['img:uw-bg']) {
+      const sh = ((camX % (bgW * 2)) + bgW * 2) % (bgW * 2);
+      for (let i = -1; i <= 2; i++) { const x = i * bgW - sh; if (x > LW || x + bgW < 0) continue; img('uw-bg', Math.floor(x), 0, { w: bgW + 1, h: LH, flip: ((i % 2) + 2) % 2 === 1 }); }
+    } else { const m = A.man.anim.underwave; if (m) frame('underwave', t * 10, 360, 640, { s: 1.22, ax: .5, ay: .5 }); else { ctx.fillStyle = '#0d4a3e'; ctx.fillRect(0, 0, LW, LH); } }
+    // moving light on the surface band and drifting shafts
     ctx.save(); ctx.globalCompositeOperation = 'lighter';
     for (let i = 0; i < 6; i++) {
-      const x = ((i * 150 + par(.35) + Math.sin(t * .4 + i) * 40) % 900 + 900) % 900 - 90;
-      const g = ctx.createLinearGradient(x, 0, x + 120, 900);
-      g.addColorStop(0, `rgba(180,255,220,${.1 + .06 * Math.sin(t * .7 + i * 2)})`); g.addColorStop(1, 'rgba(180,255,220,0)');
-      ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(x - 20, 0); ctx.lineTo(x + 40, 0); ctx.lineTo(x + 200, 1000); ctx.lineTo(x + 60, 1000); ctx.fill();
+      const x = ((i * 150 - camX * .35 + Math.sin(t * .4 + i) * 40) % 900 + 900) % 900 - 90;
+      const g = ctx.createLinearGradient(x, 120, x + 120, 900);
+      g.addColorStop(0, `rgba(180,255,220,${.08 + .05 * Math.sin(t * .7 + i * 2)})`); g.addColorStop(1, 'rgba(180,255,220,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(x - 20, 120); ctx.lineTo(x + 40, 120); ctx.lineTo(x + 200, 1000); ctx.lineTo(x + 60, 1000); ctx.fill();
     }
+    ctx.globalAlpha = .06; const ox = (t * 18 - camX * .6) % 256, oy = (t * 9) % 256;
+    for (let yy = -256; yy < LH; yy += 256) for (let xx = -512; xx < LW + 256; xx += 256) ctx.drawImage(CAUSTIC, xx + ((ox % 256) + 256) % 256, yy + oy, 256, 256);
     ctx.restore();
-    // far weeds and rocks (hazy)
-    const weed = (w, k, baseY, alpha) => {
-      const x = ((w.x + par(k) + 1400) % 2800 + 2800) % 2800 - 1400 + 360; if (x < -60 || x > LW + 60) return;
-      const sway = Math.sin(t * .9 + w.ph) * w.h * .16 + (F && F.run > 0 && Math.abs(x - U.x) < 220 ? Math.sin(t * 6 + w.ph) * 10 : 0);
-      ctx.save(); ctx.globalAlpha = alpha; ctx.fillStyle = w.c;
-      ctx.beginPath(); ctx.moveTo(x - w.w / 2, baseY);
-      ctx.quadraticCurveTo(x - w.w * .3 + sway * .4, baseY - w.h * .55, x + sway, baseY - w.h);
-      ctx.quadraticCurveTo(x + w.w * .3 + sway * .45, baseY - w.h * .5, x + w.w / 2, baseY); ctx.fill(); ctx.restore();
-    };
-    for (const r of this.rocks) if (!r.near) { const x = ((r.x + par(.45) + 1400) % 2800 + 2800) % 2800 - 1400 + 360; ctx.save(); ctx.globalAlpha = .35; ctx.fillStyle = '#123b33'; ctx.beginPath(); ctx.ellipse(x, LH - 205, r.r * 1.4, r.r * .6, 0, Math.PI, 0); ctx.fill(); ctx.restore(); }
-    for (const w of this.weeds) if (!w.near) weed(w, .45, LH - 200, .38);
-    // lake bed
-    const bedShift = ((par(.7) % LW) + LW) % LW;
-    for (let i = -1; i <= 1; i++) img('fight-bed', bedShift + i * LW, LH - 300, { w: LW + 1, h: 300, flip: (i & 1) !== 0 });
-    // the hooked fish
     if (F) {
       const n = A.man.anim['under-' + F.sp];
       const L = Math.max(1, this.line.L);
-      let tx = 360 + (F.x - U.cam) * PX * 1.6, ty = 300 + (F.depth ?? .5) * 560;
-      if (F.jump) { const u = clamp(F.jump.t / F.jump.dur, 0, 1); ty = lerp(ty, -260, Math.sin(u * Math.PI)); if (!F.jump._b) { F.jump._b = 1; for (let i = 0; i < 22; i++) (this.bub || (this.bub = [])).push({ x: U.x + rnd(-60, 60), y: 160 + rnd(40), r: rnd(2, 7), v: rnd(40, 120), life: 0 }); } }
-      const py = U.y; U.x = lerp(U.x, tx, clamp(dt * 2.4, 0, 1)); U.y = lerp(U.y, ty, clamp(dt * (F.jump ? 5 : 1.8), 0, 1)); U.vy = lerp(U.vy, (U.y - py) / Math.max(dt, .001), .1);
-      const want = Math.cos(F.h) < 0 ? -1 : 1;
-      if (U.turn < 0 && want !== U.face) U.turn = 0;
-      // closer fish look bigger; far ones fade into the green
-      const near = clamp(1.9 / (.75 + L * .16), .55, 1.45);
+      // spec: 200x200 fish at the nearest distance layer; 80% / 65% / 50% farther out
+      const layer = L < 10 ? 1 : L < 20 ? .8 : L < 30 ? .65 : .5;
       const fw = n ? n.fw : 1300, fh = n ? n.fh : 650;
-      const s = Math.min(clamp(.2 + F.size * .2 + F.len / 650, .2, .58) * near, 560 / fw);
-      const haze = clamp((L - 3) / 16, 0, .5);
-      U.x = clamp(U.x, fw * s * .4, LW - fw * s * .4);
+      const wantW = clamp(200 * (.75 + F.len / 100), 170, 520) * layer;
+      const s = wantW / fw;
+      let ty = 150 + F.uy * 860;
+      const tx = 360 + (F.ux - U.cam);
+      const py = U.y; U.x = lerp(U.x, tx, clamp(dt * 3, 0, 1)); U.y = lerp(U.y, ty, clamp(dt * 1.8, 0, 1)); U.vy = lerp(U.vy, (U.y - py) / Math.max(dt, .001), .1);
+      if (U.turn < 0 && F.face !== U.face) U.turn = 0;
       const ret = n ? (n.ret || 0) : 0, swim = n ? (n.swim || 12) : 12;
       let fi, flip;
       if (U.turn >= 0 && ret) {
-        U.turn += dt * 34;
-        fi = swim + Math.min(ret - 1, Math.floor(U.turn)); flip = U.face > 0;
-        if (U.turn >= ret) { U.turn = -1; U.face = want; }
+        U.turn += dt * 34; fi = swim + Math.min(ret - 1, Math.floor(U.turn)); flip = U.face > 0;
+        if (U.turn >= ret) { U.turn = -1; U.face = F.face; }
       } else { fi = Math.floor(F.anim * .8) % swim; flip = U.face > 0; }
-      const tilt = clamp(-U.vy / 600, -.35, .35) * (U.face > 0 ? 1 : -1);
+      const tilt = clamp(-U.vy / 600, -.35, .35) * (U.face > 0 ? 1 : -1) + (F.U <= 0 ? -.25 * (U.face > 0 ? 1 : -1) : 0);
       const wob = Math.sin(t * 2.1) * 6 + (F.run > 0 ? Math.sin(t * 23) * 3 : 0);
-      // its shadow on the bed
-      const bedY = LH - 170; const sd = clamp((bedY - U.y) / 600, 0, 1);
-      ctx.save(); ctx.globalAlpha = .28 * (1 - sd) * (1 - haze); ctx.fillStyle = '#04201a'; ctx.beginPath(); ctx.ellipse(U.x, bedY, fw * s * .32 * (1 + sd), 14 * (1 + sd), 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+      const haze = clamp((L - 8) / 40, 0, .45);
+      // shadow on the bed
+      const bedY = LH - 150; const sd = clamp((bedY - U.y) / 700, 0, 1);
+      ctx.save(); ctx.globalAlpha = .3 * (1 - sd) * (1 - haze); ctx.fillStyle = '#04201a'; ctx.beginPath(); ctx.ellipse(U.x, bedY, wantW * .35 * (1 + sd), 12 * (1 + sd), 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+      if (F.golden) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; const g = ctx.createRadialGradient(U.x, U.y, 10, U.x, U.y, wantW * .7); g.addColorStop(0, 'rgba(255,215,80,.45)'); g.addColorStop(1, 'rgba(255,200,40,0)'); ctx.fillStyle = g; ctx.fillRect(U.x - wantW, U.y - wantW, wantW * 2, wantW * 2); ctx.restore(); }
       if (n) frame('under-' + F.sp, fi, U.x, U.y + wob, { s, ax: .5, ay: .55, flip, rot: tilt, a: 1 - haze });
-      // the mouth sits near the front of the frame; the line runs up to where it enters the water
+      // the line from the rod (upper right) to the mouth, coloured and trembling with tension
       const mx = U.x + (flip ? 1 : -1) * (fw * .5 - 60) * s, my = U.y + wob + (400 - fh * .55) * s;
-      const ex = 360 + par(1.6) * .55 + Math.sin(t * 1.3) * 6, ey = 138;
-      const T = this.line.Td, slack = 1 - clamp(this.line.T * 1.8, 0, 1);
-      const col = T > .85 ? `rgba(255,${90 + 60 * Math.sin(t * 20)},70,.95)` : T > .6 ? 'rgba(255,214,120,.9)' : 'rgba(240,255,255,.82)';
-      const vib = T > .55 ? (T - .55) * 9 : 0;
-      ctx.save(); ctx.strokeStyle = col; ctx.lineWidth = 1.6 + (T > .85 ? .8 : 0); ctx.beginPath();
-      const cxp = lerp(ex, mx, .5) + slack * 40, cyp = lerp(ey, my, .5) + slack * 120;
+      const ex = 600 + Math.sin(t * 1.3) * 6, ey = 118;
+      const Tn = this.line.Td, slack = 1 - clamp(this.line.T * 1.8, 0, 1);
+      const col = Tn > .85 ? `rgba(255,${90 + 60 * Math.sin(t * 20)},70,.95)` : Tn > .6 ? 'rgba(255,214,120,.9)' : 'rgba(240,255,255,.82)';
+      const vib = Tn > .55 ? (Tn - .55) * 9 : 0;
+      ctx.save(); ctx.strokeStyle = col; ctx.lineWidth = 1.6 + (Tn > .85 ? .8 : 0); ctx.beginPath();
+      const cxp = lerp(ex, mx, .5) - slack * 40, cyp = lerp(ey, my, .5) + slack * 120;
       const nx = -(my - ey), ny = mx - ex, nl = Math.hypot(nx, ny) || 1;
       for (let i = 0; i <= 20; i++) {
         const u = i / 20, qx = (1 - u) * (1 - u) * ex + 2 * (1 - u) * u * cxp + u * u * mx, qy = (1 - u) * (1 - u) * ey + 2 * (1 - u) * u * cyp + u * u * my;
@@ -2161,16 +2360,10 @@ const pond = {
         i ? ctx.lineTo(qx + nx / nl * w, qy + ny / nl * w) : ctx.moveTo(qx, qy);
       }
       ctx.stroke(); ctx.restore();
-      // the line's dimple on the surface
       ctx.save(); ctx.strokeStyle = 'rgba(230,255,250,.5)'; ctx.lineWidth = 1.5; for (let k = 0; k < 2; k++) { const r = ((t * 30 + k * 18) % 36); ctx.globalAlpha = .5 * (1 - r / 36); ctx.beginPath(); ctx.ellipse(ex, ey, 6 + r, 2 + r * .25, 0, 0, Math.PI * 2); ctx.stroke(); } ctx.restore();
-      // bubbles from the gills when it fights hard; sand kicked up near the bottom
       if (Math.random() < (F.run > 0 ? .35 : .08)) (this.bub || (this.bub = [])).push({ x: mx + rnd(-8, 8), y: my, r: rnd(2, 6), v: rnd(60, 140), life: 0 });
-      if (U.y > LH - 420 && F.run > 0 && Math.random() < .5) (this.sand || (this.sand = [])).push({ x: U.x + rnd(-fw * s * .3, fw * s * .3), y: bedY + rnd(-10, 10), r: rnd(10, 26), t: 0, vx: rnd(-30, 30) });
+      if (U.y > LH - 380 && F.run > 0 && Math.random() < .5) (this.sand || (this.sand = [])).push({ x: U.x + rnd(-wantW * .3, wantW * .3), y: bedY + rnd(-10, 10), r: rnd(10, 26), t: 0, vx: rnd(-30, 30) });
     }
-    // near rocks and weeds in front of the fish
-    for (const r of this.rocks) if (r.near) { const x = ((r.x + par(1.2) + 1400) % 2800 + 2800) % 2800 - 1400 + 360; ctx.save(); ctx.fillStyle = '#0b2a22'; ctx.globalAlpha = .9; ctx.beginPath(); ctx.ellipse(x, LH - 40, r.r * 1.8, r.r * .9, 0, Math.PI, 0); ctx.fill(); ctx.restore(); }
-    for (const w of this.weeds) if (w.near) weed(w, 1.2, LH - 30, .85);
-    // kicked-up sand and drifting silt
     if (this.sand && this.sand.length) {
       ctx.save();
       for (const p of this.sand) { p.t += dt; p.x += p.vx * dt; p.y -= 14 * dt; p.r += 18 * dt; ctx.globalAlpha = .22 * (1 - p.t / 2.2); ctx.fillStyle = '#9a8a5c'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill(); }
@@ -2180,30 +2373,19 @@ const pond = {
     ctx.save(); ctx.fillStyle = '#d8fff0';
     for (const p of this.silt) {
       p.x += Math.sin(t * .3 + p.p) * 6 * dt * p.z; p.y += 4 * dt * p.z; if (p.y > LH) p.y = 0;
-      const x = ((p.x + par(p.z) * .6) % LW + LW) % LW;
+      const x = ((p.x - camX * p.z * .6) % LW + LW) % LW;
       ctx.globalAlpha = .1 + p.z * .16; ctx.beginPath(); ctx.arc(x, p.y, p.z * 1.8, 0, Math.PI * 2); ctx.fill();
     }
-    ctx.restore();
-    // caustic light dancing over everything
-    ctx.save(); ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = .07;
-    const ox = (t * 18 + par(.6)) % 256, oy = (t * 9) % 256;
-    for (let yy = -256; yy < LH; yy += 256) for (let xx = -512; xx < LW + 256; xx += 256) ctx.drawImage(CAUSTIC, xx + ox, yy + oy, 256, 256);
-    ctx.globalAlpha = .045; const ox2 = (-t * 13 + par(.6)) % 300;
-    for (let yy = -300; yy < LH; yy += 300) for (let xx = -600; xx < LW + 300; xx += 300) ctx.drawImage(CAUSTIC, xx + ox2, yy - oy, 300, 300);
     ctx.restore();
     if (!this.bub) this.bub = [];
     if (this.bub.length < 18 && Math.random() < .2) this.bub.push({ x: rnd(LW), y: LH + 10, r: rnd(2, 6), v: rnd(30, 80), life: 0 });
     ctx.save(); ctx.lineWidth = 1.4;
     for (const b of this.bub) { b.y -= b.v * dt; b.x += Math.sin(t * 3 + b.r) * .5; b.life += dt; ctx.strokeStyle = 'rgba(220,255,250,.6)'; ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.stroke(); ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.beginPath(); ctx.arc(b.x - b.r * .35, b.y - b.r * .35, b.r * .25, 0, Math.PI * 2); ctx.fill(); }
-    this.bub = this.bub.filter(b => b.y > 130);
+    this.bub = this.bub.filter(b => b.y > 110);
     ctx.restore();
-    const vg = ctx.createRadialGradient(360, 640, 200, 360, 640, 820);
-    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,25,20,.6)');
+    const vg = ctx.createRadialGradient(360, 640, 260, 360, 640, 860);
+    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,25,20,.45)');
     ctx.fillStyle = vg; ctx.fillRect(0, 0, LW, LH);
-    if (this.st === 'hookset') {
-      const k = easeBack(clamp(this.stT / .4, 0, 1));
-      ui('fishing/get-fish', 360, 420, { ax: .5, ay: .5, s: k });
-    }
     this.drawHUD();
   },
   // Everyone fishing in this pond stands somewhere along the dock; their float / fish are relative to their spot.
@@ -2348,6 +2530,14 @@ const pond = {
     // banners
     if (this.banner && this.banner.k === 'get' && this.view === 'surface' && st !== 'hookset') {
       const k = easeBack(clamp(this.banner.t / .3, 0, 1)); ui('fishing/get-fish', 360, 520, { ax: .5, ay: .5, s: k, a: 1 - clamp((this.banner.t - 1.1) / .3, 0, 1) });
+      if (this.lureStrike || (this.approach && this.approach.phase === 'bite')) hint(`快按「揚竿」！（${Math.max(0, BITE_WINDOW - (this.lureStrike ? this.lureStrike.t : this.approach.biteT)).toFixed(1)} 秒）`, 600);
+    }
+    if (this.banner && this.banner.k === 'gold') {
+      const k = easeBack(clamp(this.banner.t / .3, 0, 1)), a = 1 - clamp((this.banner.t - 1.6) / .4, 0, 1);
+      ctx.save(); ctx.globalAlpha = a; ctx.translate(360, 560); ctx.scale(k, k);
+      const g = ctx.createRadialGradient(0, 0, 10, 0, 0, 220); g.addColorStop(0, 'rgba(255,230,120,.75)'); g.addColorStop(1, 'rgba(255,200,60,0)');
+      ctx.fillStyle = g; ctx.fillRect(-240, -140, 480, 280); ctx.restore();
+      text('采金魚上鉤！', 360, 560, { size: 54, weight: 900, align: 'center', color: '#fff3a0', stroke: '#7a3a00', sw: 10, a });
     }
     if (st === 'lost') {
       const k = easeBack(clamp(this.stT / .35, 0, 1));
@@ -2371,11 +2561,13 @@ const pond = {
       if (btn('tackle', 'fishing/button-tackle', 650, by, { s: .9 }).click) openModal(tackleModal());
     } else if (st === 'aim') {
       if (btn('back2', 'fishing/button-back to lobby', 70, by, { s: .9 }).click) this.setState('idle');
-      // bet
+      // 下注 (休閒池 only): fee per cast = bet; catches pay × bet
       ui('fishing/mid-reel-number-bar', 360, by + 48, { ax: .5, ay: .5, s: 1 });
-      text('下注 ' + this.bet, 360, by + 50, { size: 26, align: 'center', weight: 900, color: '#fff', stroke: '#2b0d4a' });
-      if (btn('minus', 'fishing/UI-button-mid-reel-minus', 230, by + 46, { press: 'fishing/UI-button-mid-reel-minus-press', s: .78 }).click) this.bet = clamp(this.bet - (this.bet > 10 ? 5 : 1), this.p.minBet, this.p.maxBet);
-      if (btn('plus', 'fishing/UI-button-mid-reel-plus', 490, by + 46, { press: 'fishing/UI-button-mid-reel-plus-press', s: .78 }).click) this.bet = clamp(this.bet + (this.bet >= 10 ? 5 : 1), this.p.minBet, Math.min(this.p.maxBet, S.silver));
+      if (this.p.bet) {
+        text('下注 ' + this.bet, 360, by + 50, { size: 26, align: 'center', weight: 900, color: '#fff', stroke: '#2b0d4a' });
+        if (btn('minus', 'fishing/UI-button-mid-reel-minus', 230, by + 46, { press: 'fishing/UI-button-mid-reel-minus-press', s: .78 }).click) this.bet = clamp(this.bet - (this.bet > 10 ? 5 : 1), 1, BET_MAX);
+        if (btn('plus', 'fishing/UI-button-mid-reel-plus', 490, by + 46, { press: 'fishing/UI-button-mid-reel-plus-press', s: .78 }).click) this.bet = clamp(this.bet + (this.bet >= 10 ? 5 : 1), 1, Math.max(1, Math.min(BET_MAX, S.silver)));
+      } else text(this.p.fee.per === 'cast' ? `每竿 ${this.p.fee.amt} 金幣` : '已付入場費', 360, by + 50, { size: 24, align: 'center', weight: 900, color: '#fff', stroke: '#2b0d4a' });
       // hold to charge cast distance
       const tb = btn('throw2', 'fishing/UI-button-mid-reel-throw', 360, by - 40, { press: 'fishing/UI-button-mid-reel-throw-press', s: 1.05 });
       if (tb.held && !this.charging) { this.charging = 'ptr'; this.stT = 0; }
@@ -2399,23 +2591,52 @@ const pond = {
         this._spaceLatch = keys.Space;
       } else {
         this.drawReel(by - 70);
-        hint('順時針轉動捲線器收線，速度適中魚才會追');
+        if (this.lureStrike) {
+          const pb = btn('pull', 'fishing/button-pull', 600, by - 12, { s: 1.05, glow: true, glowColor: 'rgba(120,255,140,.95)' });
+          if (pb.click || (keys.ArrowUp && !this._spaceLatch)) this.strike();
+          this._spaceLatch = keys.ArrowUp;
+        } else hint('順時針轉動捲線器收線，速度適中魚才會追');
       }
       if (st === 'wait' && btn('tackle2', 'fishing/button-tackle', 450, by, { s: .9 }).click) openModal(tackleModal());
     } else if (fighting) {
       this.drawReel(by - 70);
-      // underwater view toggle
+      this.drawNotches(by - 70);
+      // underwater view toggle (only fish over 40 cm go under water)
       const ub = { x: 600, y: by - 130, w: 104, h: 104 };
+      if (this.fish && this.fish.phase === 'under') {
       const uh = hit('under', ub);
       ctx.save(); roundRect(ub.x, ub.y, ub.w, ub.h, 26); ctx.fillStyle = this.view === 'under' ? 'rgba(80,200,255,.75)' : 'rgba(5,40,60,.62)'; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#bff3ff'; ctx.stroke(); ctx.restore();
       drawEye(ub.x + 52, ub.y + 44); text(this.view === 'under' ? '看水面' : '看水下', ub.x + 52, ub.y + 84, { size: 20, align: 'center', weight: 900, color: '#fff' });
       if (uh.click && st === 'fight') { this.view = this.view === 'under' ? 'surface' : 'under'; S.uw = this.view === 'under'; save(); }
+      }
     }
+    // room time left
+    if (this.p.fee.per === 'room' && S.room && S.room.p === this.p.id && !fighting) {
+      const left = Math.max(0, S.room.until - Date.now()), mm = Math.floor(left / 60000), ss = Math.floor(left / 1000) % 60;
+      text(`剩餘 ${mm}:${String(ss).padStart(2, '0')}`, 704, 304, { size: 20, weight: 900, align: 'right', color: left < 60000 ? '#ff8a7a' : '#e9fffb', stroke: '#063247', sw: 4 });
+    }
+  },
+  // 數值光條：收線 10 格（上）、放線 5 格（下）
+  drawNotches(cy) {
+    const x = 500, top = cy - 150, cell = 15, n = this.N || 0;
+    ctx.save(); roundRect(x - 6, top - 6, 34, cell * 15 + 12, 10); ctx.fillStyle = 'rgba(3,25,35,.62)'; ctx.fill();
+    for (let i = 0; i < 15; i++) {
+      const v = 10 - i;               // 10 … 1 then 0 … -4
+      const lvl = v > 0 ? v : v - 1;  // 10..1, -1..-5
+      const on = lvl > 0 ? n >= lvl - .999 : n <= lvl + .999;
+      const y = top + i * cell;
+      ctx.fillStyle = lvl > 0 ? (on ? `hsl(${130 - lvl * 11},85%,55%)` : 'rgba(255,255,255,.12)') : (on ? '#5ab8ff' : 'rgba(255,255,255,.08)');
+      ctx.fillRect(x, y + 1, 22, cell - 3);
+      if (i === 9) { ctx.fillStyle = '#fff'; ctx.fillRect(x - 4, y + cell - 1, 30, 2); }
+    }
+    ctx.restore();
+    text('收', x + 11, top - 18, { size: 16, weight: 900, align: 'center', color: '#bfffd0', stroke: '#063247', sw: 3 });
+    text('放', x + 11, top + cell * 15 + 18, { size: 16, weight: 900, align: 'center', color: '#bfe6ff', stroke: '#063247', sw: 3 });
   },
   drawTackleColumn() {
     const x = 622, y0 = 330;
     const rod = S.equip.rod, ln = S.equip.line, fl = S.equip.float, bt = S.equip.bait;
-    const items = [['tackle-icons/rods/' + rod, null], ['tackle-icons/lines/' + ln, null]];
+    const items = [['tackle-icons/rods/' + rod, null], [lineIcon(ln), null]];
     if (!this.isLure()) items.push(['tackle-icons/floats/' + fl, null]);
     items.push(['tackle-icons/baits/' + bt, BAITS[bt] && BAITS[bt].lure ? null : (S.bait[bt] || 0)]);
     items.forEach(([icon, count], i) => {
@@ -2443,7 +2664,12 @@ const pond = {
     }
     // reel speed indicator
     if (this.reel > .02) { ctx.save(); ctx.strokeStyle = `rgba(140,255,200,${.3 + this.reel * .6})`; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(cx, cy, 128, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * this.reel); ctx.stroke(); ctx.restore(); }
-    if (this.st === 'fight' && this.stT < 5) hint('順時針轉動手把收線・按住「力」發力');
+    if ((this.st === 'fight' || this.st === 'hookset') && this.fish) {
+      const idle = T - this.lastPress;
+      if (idle > 3.5 && this.fish.U > 0) hint(`快收線！${Math.max(0, 7 - idle).toFixed(0)} 秒內不收線魚會跑掉`, 452);
+      else if (this.stT < 6 && this.st === 'fight') hint('點「力」收線一格・按住持續收線・2 秒不按會自動放線');
+      else if (this.line.T > .85) hint('線快斷了！先放一放線', 452);
+    }
   },
   drawFightTop() {
     const F = this.fish;
@@ -2456,7 +2682,7 @@ const pond = {
     ui('fighting-top-UI/my-UI-warring', 129, 45, { crop: clamp(T, 0, 1) });
     ui(warn && Math.sin(this.t * 20) > 0 ? 'fighting-top-UI/my-UI-warring-icon-light' : 'fighting-top-UI/my-UI-warring-icon', 112, 52, { ax: .5, ay: .5 });
     ui('fighting-top-UI/fish-UI-power-base', 120, 72);
-    ui('fighting-top-UI/my-UI-power', 127, 79, { crop: this.power });
+    ui('fighting-top-UI/my-UI-power', 127, 79, { crop: (this.P || 0) / 100 });
     // right: fish
     if (F) {
       ui('fighting-top-UI/head-base-UI', LW - 6, 8, { s: .95, ax: 1, flip: true });
@@ -2469,10 +2695,12 @@ const pond = {
       ui('fighting-top-UI/fish-UI-life-icon', LW - 112, 52, { ax: .5, ay: .5 });
       ui('fighting-top-UI/fish-UI-power-base', LW - 120, 72, { ax: 1 });
       const ps = uiSize('fighting-top-UI/fish-UI-power');
-      const fp = clamp((F.run > 0 ? .55 : .25) + F.stam * .45, 0, 1);
+      const fp = clamp(F.F / Math.max(1, F.Fmax), 0, 1);
       ui('fighting-top-UI/fish-UI-power', LW - 127 - ps.w, 79, { crop: fp });
       if (F.angry > 0) frame('angry', this.t * 24, LW - 64, 66, { s: .62, a: Math.min(1, F.angry * 2) });
-      text(FISH[F.sp].name, LW - 128, 128, { size: 22, align: 'right', weight: 900, stroke: '#00263a', color: '#ffe9a0' });
+      text((F.golden ? '采金 ' : '') + FISH[F.sp].name, LW - 128, 128, { size: 22, align: 'right', weight: 900, stroke: '#00263a', color: F.golden ? '#ffd24a' : '#ffe9a0' });
+      // spec values, small: 釣力 P / 魚力 F / 承受力 S
+      text(`釣力 ${Math.round(this.P || 0)}　魚力 ${Math.round(F.F)}　承受力 ${LINES[S.equip.line].S}`, 360, 166, { size: 17, align: 'center', weight: 700, color: '#e9fbff', stroke: '#063247', sw: 4 });
     }
     // distance
     const dist = Math.max(0, Math.ceil(this.line.L));
@@ -2553,20 +2781,31 @@ const catchScene = {
     val('+' + fmt(r.gold), 200, 494); val('+' + fmt(r.silver), 200, 561); val('+' + fmt(r.ep) + ' EP', 200, 629);
     text(String(r.record), bx + 150, by + 746, { size: 28, weight: 900, align: 'center', color: '#ffe9b0' });
     if (r.newRecord) text('新紀錄！', bx + 268, by + 696, { size: 26, weight: 900, color: '#e8321e', stroke: '#fff', sw: 5, align: 'center' });
-    if (!this.done) {
-      if (btn('sell', 'catch/button-sale', bx + 98, by + 830, { s: .95 }).click) this.finish(true);
-      if (btn('rel', 'catch/button-release', bx + 262, by + 830, { s: .95 }).click) this.finish(false);
+    if (r.golden) {
+      const k = easeBack(clamp((t - .5) / .4, 0, 1));
+      ctx.save(); ctx.translate(bx + 300, by + 205); ctx.rotate(.18); ctx.scale(k, k);
+      roundRect(-66, -24, 132, 48, 24); ctx.fillStyle = '#ffcf3a'; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#7a3a00'; ctx.stroke(); ctx.restore();
+      if (k > .5) text('采金魚', bx + 300, by + 206, { size: 26, weight: 900, align: 'center', color: '#5a2a00' });
     }
-    text('售出：獲得銀幣與金幣　放生：經驗加倍', 360, LH - 34, { size: 20, align: 'center', weight: 700, color: '#fff', stroke: '#3a1a06' });
+    if (!this.done && btn('sell', 'catch/button-sale', bx + 180, by + 830, { s: 1 }).click) this.finish();
+    text(`搏魚 ${r.secs} 秒・售出獲得銀幣${r.gold ? '、金幣' : ''}與經驗值`, 360, LH - 34, { size: 20, align: 'center', weight: 700, color: '#fff', stroke: '#3a1a06' });
   },
-  finish(sell) {
+  finish() {
     const r = this.r; this.done = true;
     const lv0 = LV();
-    if (sell) { S.silver += r.silver; S.gold += r.gold; S.ep += r.ep; audio.coin(); }
-    else { S.ep += r.ep * 2; if (r.stars >= 4) S.gold += 1; audio.tone(880, .3, 'sine', .15); }
+    S.silver += r.silver; S.gold += r.gold; addEp(r.ep); audio.coin();
     S.records[r.sp] = r.record; S.totalCaught++;
-    S.today.list.push({ sp: r.sp, len: r.len, stars: r.stars, score: sell ? r.silver : 0, sold: sell });
+    S.today.list.push({ sp: r.sp, len: r.len, stars: r.stars, score: r.silver, sold: true });
+    // stats for missions
+    const st = S.stats, d = fishDay();
+    st.kg = Math.round((st.kg + r.kg) * 100) / 100;
+    if (st.day.d !== d) st.day = { d, kg: 0 };
+    st.day.kg = Math.round((st.day.kg + r.kg) * 100) / 100;
+    st.pond[r.pond] = (st.pond[r.pond] || 0) + 1;
+    if (r.golden) { st.goldFish++; if (r.pond >= 3) st.goldBig = 1; }
+    S.firsts[r.sp] = 1;
     save();
+    NET.checkRecord(r);
     NET.emit('catch', { n: S.name, sp: r.sp, len: r.len, stars: r.stars, p: r.pond });
     NET.saveProfile();
     const lv1 = LV();
@@ -2620,9 +2859,11 @@ function pondBoard(p) {
   };
   return m;
 }
-async function enterPond(p) {
+async function enterPond(p, paid) {
+  if (LV() < p.lv) { openModal(messageModal(`需要 Lv.${p.lv} 才能進入${p.name}。`, p.name)); return; }
+  if (p.fee.per === 'room' && !paid && !roomValid(p)) { openModal(roomModal(p, false)); return; }
   loading.show('前往' + p.name + '…');
-  const sp = Object.keys(p.fish);
+  const sp = p.fish;
   await ensureProgress([`img:${p.bgKey}-bg-water`, `img:${p.bgKey}-bg-top`, `img:${p.bgKey}-wood-grass`, ...charAssets(S.char), 'img:girl-idle', 'img:girl-fight', 'img:girl-shadow', 'anim:splash',
     ...(p.id === 1 ? ['img:pond-cloud1', 'img:pond-cloud2', 'img:pond-cloud3'] : [`img:${p.bgKey}-fog`]), ...sp.map(k => 'anim:fight-' + k)], v => loading.p = v);
   loading.hide();
@@ -2670,10 +2911,10 @@ function tackleModal() {
     cat: 'rod', off: 0,
     items() {
       if (m.cat === 'rod') return S.owned.rod.map(k => ({ k, icon: 'tackle-icons/rods/' + k, label: RODS[k].name }));
-      if (m.cat === 'line') return S.owned.line.map(k => ({ k, icon: 'tackle-icons/lines/' + k, label: LINES[k].name }));
+      if (m.cat === 'line') return S.owned.line.map(k => ({ k, icon: lineIcon(k), label: LINES[k].name + (LINES[k].life ? `（剩 ${S.lineLife[k] ?? LINES[k].life} 次）` : '') }));
       if (m.cat === 'float') return S.owned.float.map(k => ({ k, icon: 'tackle-icons/floats/' + k, label: FLOATS[k].name }));
       const out = [];
-      for (const [k, n] of Object.entries(S.bait)) if (n > 0) out.push({ k, icon: 'tackle-icons/baits/' + k, label: k, n });
+      for (const [k, n] of Object.entries(S.bait)) if (n > 0) out.push({ k, icon: 'tackle-icons/baits/' + k, label: baitName(k) + '（' + BAITS[k].rods.map(r => r === 'H' ? '手竿' : r).join('、') + '）', n });
       for (const k of S.owned.lure) out.push({ k, icon: 'tackle-icons/baits/' + k, label: k + '（假餌）' });
       return out;
     },
@@ -2685,7 +2926,7 @@ function tackleModal() {
         const L = bx - 350, Tp = by - 460;
         // equipped slots (positions follow the board art)
         const slots = { line: [L + 148, Tp + 203], float: [L + 148, Tp + 367], bait: [L + 148, Tp + 533], rod: [L + 524, Tp + 252] };
-        const icons = { rod: 'tackle-icons/rods/' + S.equip.rod, line: 'tackle-icons/lines/' + S.equip.line, float: 'tackle-icons/floats/' + S.equip.float, bait: 'tackle-icons/baits/' + S.equip.bait };
+        const icons = { rod: 'tackle-icons/rods/' + S.equip.rod, line: lineIcon(S.equip.line), float: 'tackle-icons/floats/' + S.equip.float, bait: 'tackle-icons/baits/' + S.equip.bait };
         for (const c of cats) {
           const [x, y] = slots[c];
           const r = { x: x - 52, y: y - 52, w: 104, h: 104 };
@@ -2725,19 +2966,21 @@ function shopModal() {
   const m = {
     tab: 'bait', sel: null, qty: 10, off: 0,
     list() {
-      if (m.tab === 'rod') return Object.entries(RODS).map(([k, v]) => ({ k, icon: 'tackle-icons/rods/' + k, name: v.name, price: v.price, owned: S.owned.rod.includes(k), desc: `${v.kind === 'pole' ? '手竿' : v.kind === 'lure' ? '路亞竿' : '船竿（手竿池以外）'}・力量 ${v.power.toFixed(2)}・拋投 ${v.cast}m` }));
-      if (m.tab === 'line') return Object.entries(LINES).map(([k, v]) => ({ k, icon: 'tackle-icons/lines/' + k, name: v.name, price: v.price, owned: S.owned.line.includes(k), desc: `拉力 ${v.b.toFixed(2)}・越粗越不易斷，魚也較謹慎` }));
-      if (m.tab === 'float') return Object.entries(FLOATS).map(([k, v]) => ({ k, icon: 'tackle-icons/floats/' + k, name: v.name, price: v.price, owned: S.owned.float.includes(k), desc: `咬餌反應時間 ×${v.win.toFixed(2)}` }));
-      return Object.entries(BAITS).map(([k, v]) => ({ k, icon: 'tackle-icons/baits/' + k, name: k, price: v.price, lure: !!v.lure, owned: v.lure ? S.owned.lure.includes(k) : false, count: S.bait[k] || 0, desc: v.lure ? '假餌（路亞池用，可重複使用）・愛吃：' + Object.keys(v.likes).map(s => FISH[s].name).join('、') : '愛吃：' + Object.entries(v.likes).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([s]) => FISH[s].name).join('、') }));
+      if (m.tab === 'rod') return Object.entries(RODS).map(([k, v]) => ({ k, icon: 'tackle-icons/rods/' + k, name: v.name, price: v.price, owned: S.owned.rod.includes(k), desc: `${v.code}・拋投距離 ${v.cast}・釣線長 ${v.line}m・魚體 ${v.maxCm}cm 以下` }));
+      if (m.tab === 'line') return Object.entries(LINES).map(([k, v]) => ({ k, icon: lineIcon(k), name: v.name, price: v.price, owned: S.owned.line.includes(k), desc: `承受力 ${v.S}・生命值 ${v.life || '無限'}・適用 ${Object.keys(v.fits).map(r => r === 'H' ? '手竿' : r).join('、')}` }));
+      if (m.tab === 'float') return Object.entries(FLOATS).map(([k, v]) => ({ k, icon: 'tackle-icons/floats/' + k, name: v.name, price: v.price, owned: S.owned.float.includes(k), desc: (v.kind === 'cast' ? '投竿專用・' : '手竿用・') + ['敏感度低，只有浮與下沉', '敏感度中等，適合各種草食魚', '敏感度高，鯽魚吸食也看得清楚'][v.sens] }));
+      return Object.entries(BAITS).map(([k, v]) => ({ k, icon: 'tackle-icons/baits/' + k, name: baitName(k), price: v.price, lure: !!v.lure, owned: v.lure ? S.owned.lure.includes(k) : false, count: S.bait[k] || 0,
+        desc: (v.lure ? '假餌，可重複使用・' : '一包 10 份・') + '適用 ' + v.rods.map(r => r === 'H' ? '手竿' : r).join('、') + '・' + Object.entries(v.rates).sort((a, b) => b[1] - a[1]).map(([sp, r]) => FISH[sp].name + r + '%').join(' ') }));
     },
     buy(it) {
       const consumable = m.tab === 'bait' && !it.lure;
-      const n = consumable ? m.qty : 1;
+      const n = consumable ? m.qty : 1;          // bait is sold in packs of 10
       const cost = it.price[0] * n, cur = it.price[1];
       if (!consumable && it.owned) return say('已經擁有了');
       if ((cur === 's' ? S.silver : S.gold) < cost) return openModal(messageModal(cur === 's' ? '銀幣不足！' : '金幣不足！', '商店'));
       if (cur === 's') S.silver -= cost; else S.gold -= cost;
-      if (consumable) S.bait[it.k] = (S.bait[it.k] || 0) + n;
+      if (m.tab === 'line' && LINES[it.k].life) S.lineLife[it.k] = LINES[it.k].life;
+      if (consumable) S.bait[it.k] = (S.bait[it.k] || 0) + n * BAIT_PACK;
       else if (m.tab === 'bait') S.owned.lure.push(it.k);
       else S.owned[m.tab].push(it.k);
       save(); audio.coin(); openModal(messageModal('購買成功！\n' + it.name + (consumable ? ' ×' + n : ''), '商店'));
@@ -2871,24 +3114,39 @@ function onlineModal() {
 }
 function leaderboardModal() {
   const m = {
+    tab: 'week',
     draw() {
       dim();
       withPop(m, 360, 640, () => {
         plainBoard();
         ctx.save(); roundRect(230, 160, 260, 60, 14); ctx.fillStyle = '#6f7a1c'; ctx.fill(); ctx.restore();
-        text(NET.mode === 'fire' ? '全服排行' : '好友排行', 360, 190, { size: 36, align: 'center', weight: 900, color: '#ffe36a', stroke: '#2f3a06' });
-        const rows = NET.board.slice(0, 10);
-        if (!rows.length) wrapText('還沒有排行資料。釣到魚後就會出現在這裡。', 360, 420, 460, 40, { size: 24, align: 'center', color: '#ffeccc', weight: 700 });
-        rows.forEach((r, i) => {
-          const y = 275 + i * 56, me = r.id === NET.uid;
-          if (me) { ctx.save(); roundRect(84, y - 25, 552, 50, 12); ctx.fillStyle = 'rgba(255,230,120,.22)'; ctx.fill(); ctx.restore(); }
-          text(String(i + 1), 116, y, { size: 26, weight: 900, color: i < 3 ? '#ffd24a' : '#fff', align: 'center' });
-          text(cleanName(r.n, '釣友') + (me ? '（你）' : ''), 150, y, { size: 23, weight: 900, color: '#fff' });
-          text(`Lv.${r.lv | 0}`, 380, y, { size: 20, weight: 700, color: '#ffe0a8' });
-          const best = FISH[r.bestSp] ? `${FISH[r.bestSp].name} ${Number(r.bestLen) || 0}cm` : `${r.total | 0} 尾`;
-          text(best, 620, y, { size: 19, weight: 700, color: '#bdf6ff', align: 'right' });
+        text('排行榜', 360, 190, { size: 36, align: 'center', weight: 900, color: '#ffe36a', stroke: '#2f3a06' });
+        [['week', '週'], ['month', '月'], ['all', '總排名']].forEach(([k, label], i) => {
+          if (textBtn('lb' + k, label, 200 + i * 160, 262, 140, 52, { layer: 1, size: 24, colors: m.tab === k ? ['#ffd76a', '#e09a1a'] : ['#8fa4b4', '#4c6070'], edge: m.tab === k ? '#7a4a00' : '#26343f' }).click) m.tab = k;
         });
-        if (textBtn('lbmine', '我的魚種紀錄', 360, 900, 260, 60, { layer: 1, size: 24 }).click) { closeModal(m); openModal(recordsModal()); }
+        // 週：本週一起新加的經驗值；月：本月新加的經驗值；總：累計
+        const w = weekKey(), mo = monthKey();
+        const val = r => m.tab === 'week' ? (r.wk === w ? r.wep | 0 : 0) : m.tab === 'month' ? (r.mo === mo ? r.mep | 0 : 0) : r.ep | 0;
+        const all = NET.board.map(r => ({ ...r, v: val(r) })).filter(r => r.v > 0 || m.tab === 'all').sort((a, b) => b.v - a.v);
+        const rows = all.slice(0, 9);
+        if (!NET.db) wrapText('單機模式沒有排行榜。', 360, 420, 460, 40, { size: 24, align: 'center', color: '#ffeccc', weight: 700 });
+        else if (!rows.length) wrapText(m.tab === 'week' ? '本週還沒有人得到經驗值，快去釣魚吧！' : m.tab === 'month' ? '本月還沒有人得到經驗值。' : '還沒有排行資料。', 360, 420, 460, 40, { size: 24, align: 'center', color: '#ffeccc', weight: 700 });
+        rows.forEach((r, i) => {
+          const y = 322 + i * 60, me = r.id === NET.uid;
+          ctx.save(); roundRect(96, y - 26, 528, 54, 12); ctx.fillStyle = me ? 'rgba(255,230,120,.28)' : 'rgba(255,240,210,.12)'; ctx.fill(); ctx.restore();
+          text(String(i + 1), 126, y, { size: 26, weight: 900, color: i < 3 ? '#ffd24a' : '#fff', align: 'center' });
+          text(cleanName(r.n, '釣友') + (me ? '（你）' : ''), 160, y - 8, { size: 22, weight: 900, color: '#fff' });
+          text(titleFor(r.lv | 0), 160, y + 15, { size: 15, weight: 700, color: '#ffe0a8' });
+          text(`Lv.${r.lv | 0}`, 470, y, { size: 20, weight: 900, color: '#ffd76a', align: 'right' });
+          text(fmt(r.v), 610, y, { size: 21, weight: 900, color: '#bdf6ff', align: 'right' });
+        });
+        // 我的成績
+        const mine = all.findIndex(r => r.id === NET.uid);
+        const myV = m.tab === 'week' ? (S.epw.k === w ? S.epw.v : 0) : m.tab === 'month' ? (S.epm.k === mo ? S.epm.v : 0) : S.ep;
+        ctx.save(); roundRect(110, 900, 500, 70, 18); ctx.fillStyle = 'rgba(80,40,6,.55)'; ctx.fill(); ctx.restore();
+        text('我的成績', 140, 935, { size: 24, weight: 900, color: '#ffe36a' });
+        text(mine >= 0 ? `第 ${mine + 1} 名` : '未上榜', 330, 935, { size: 22, weight: 900, color: '#fff' });
+        text(fmt(Math.floor(myV)) + ' 經驗', 590, 935, { size: 22, weight: 900, align: 'right', color: '#bdf6ff' });
       });
       if (btn('lbclose', 'fishing/POP-catch/button-close', 672, 190, { s: .72, layer: 1 }).click) closeModal(m);
     },
@@ -3183,7 +3441,7 @@ function giftModal(uid, name) {
         .map(([k, n]) => ({ k: 'bait', id: k, icon: 'tackle-icons/baits/' + k, label: k, have: n, step: 5, max: Math.min(100, n) }));
       const out = [];
       for (const k of S.owned.rod) if (S.equip.rod !== k) out.push({ k: 'rod', id: k, icon: 'tackle-icons/rods/' + k, label: RODS[k].name });
-      for (const k of S.owned.line) if (S.equip.line !== k) out.push({ k: 'line', id: k, icon: 'tackle-icons/lines/' + k, label: LINES[k].name });
+      for (const k of S.owned.line) if (S.equip.line !== k) out.push({ k: 'line', id: k, icon: lineIcon(k), label: LINES[k].name });
       for (const k of S.owned.float) if (S.equip.float !== k) out.push({ k: 'float', id: k, icon: 'tackle-icons/floats/' + k, label: FLOATS[k].name });
       for (const k of S.owned.lure) if (S.equip.bait !== k) out.push({ k: 'lure', id: k, icon: 'tackle-icons/baits/' + k, label: k + '（假餌）' });
       return out.map(o => ({ ...o, have: 1, step: 1, max: 1 }));
@@ -3253,12 +3511,154 @@ function giftModal(uid, name) {
   };
   return m;
 }
-function missionsModal() {
-  const goals = [['今天釣到 3 條魚', S.today.list.length, 3], ['今天釣到 10 條魚', S.today.list.length, 10], ['釣到 4 星以上的魚', S.today.list.filter(i => i.stars >= 4).length, 1], ['集滿 6 種魚', Object.keys(S.records).length, 6]];
-  const msg = goals.map(([g, v, n]) => `${v >= n ? '✔' : '・'} ${g}（${Math.min(v, n)}/${n}）`).join('\n');
-  return messageModal(msg, '任務');
+/* ---------------- 任務 (spec sheet 任務; blank rewards are 估) ---------------- */
+const FIRST_ORDER = ['tinfoil', 'niloticus', 'rainbow', 'carp', 'tilapia', 'crucian', 'culter', 'bbass', 'peacock', 'whitegrunt', 'corvina', 'grouper', 'giantgrouper'];
+function rewardText(r) { return [r.ep ? `${r.ep} 經驗` : '', r.s ? `${fmt(r.s)} 銀幣` : '', r.g ? `${r.g} 金幣` : ''].filter(Boolean).join('、'); }
+function missionList() {
+  const out = [], lv = LV(), st = S.stats, d = fishDay(), done = S.done;
+  out.push({ id: 'streak', title: '連續 7 天登入', desc: '連續 7 天都有登入遊戲，每完成一輪多送 1 金幣', prog: [Math.min(S.streak.n, 7), 7], reward: { s: 300, g: (S.streak.weeks | 0) + 1 }, ok: S.streak.n >= 7 });
+  const nf = FIRST_ORDER.find(k => !done['first_' + k]);
+  if (nf) out.push({ id: 'first_' + nf, title: `釣獲人生第一尾${FISH[nf].name}`, desc: `到${PONDS.find(p => p.fish.includes(nf)).name}釣到第一尾${FISH[nf].name}`, prog: [S.firsts[nf] ? 1 : 0, 1], reward: { ep: 50, s: 10 }, ok: !!S.firsts[nf] });
+  for (const p of PONDS) {
+    if (lv < p.lv) continue;
+    const n = st.pond[p.id] || 0;
+    const tgt = [10, 100].find(x => !done[`pond${p.id}_${x}`]);
+    if (tgt) out.push({ id: `pond${p.id}_${tgt}`, title: `到${p.name}釣獲 ${tgt} 條魚`, desc: '無論魚種都算', prog: [Math.min(n, tgt), tgt], reward: tgt === 10 ? { s: 100 } : { s: 1000, g: 10 }, ok: n >= tgt });
+  }
+  for (const [th, rw] of [[10, { s: 200 }], [50, { s: 500, g: 5 }], [100, { s: 1000, g: 10 }]]) {
+    if (st.kg < th) continue;
+    const id = `kg${th}_${d}`; if (done[id]) continue;
+    const today = st.day.d === d ? st.day.kg : 0;
+    out.push({ id, title: `1 天釣 ${th} 公斤挑戰賽`, desc: '當天（凌晨 1:00 起算）釣獲的魚總重達標', prog: [Math.min(today, th), th], reward: rw, ok: today >= th });
+  }
+  if (lv >= 5 && !done.goldBig) out.push({ id: 'goldBig', title: '挑戰人生第一尾采金魚', desc: '到路亞池或戰鬥池釣獲第一尾采金魚', prog: [st.goldBig ? 1 : 0, 1], reward: { s: 500 }, ok: !!st.goldBig });
+  for (const k of Object.keys(S.firsts)) {
+    if (done['rec_' + k] || !FISH[k]) continue;
+    out.push({ id: 'rec_' + k, title: `釣獲最大的${FISH[k].name}紀錄魚`, desc: `釣到比全服紀錄更大的${FISH[k].name}`, prog: [(S.recBeat || {})[k] ? 1 : 0, 1], reward: { s: 300, g: 3 }, ok: !!(S.recBeat || {})[k] });
+  }
+  out.push({ id: 'invite', title: '邀請好友加入神釣手', desc: '好友用你的邀請碼註冊即可獲得獎勵（即將開放）', prog: [0, 1], reward: {}, ok: false, soon: true });
+  out.push({ id: 'ad', title: '點擊廣告賺金幣', desc: '每天點擊一次廣告即可獲得獎勵（即將開放）', prog: [0, 1], reward: {}, ok: false, soon: true });
+  return out.sort((a, b) => (b.ok - a.ok) || (a.soon ? 1 : 0) - (b.soon ? 1 : 0));
 }
-
+function claimMission(m) {
+  const r = m.reward, lv0 = LV();
+  if (r.s) S.silver += r.s; if (r.g) S.gold += r.g; if (r.ep) addEp(r.ep);
+  if (m.id === 'streak') { S.streak.n -= 7; S.streak.weeks = (S.streak.weeks | 0) + 1; } else S.done[m.id] = 1;
+  save(); NET.saveProfile(); audio.coin();
+  openModal(messageModal(`任務完成！\n獲得 ${rewardText(r)}` + (LV() > lv0 ? `\n升到 Lv.${LV()}「${title()}」！` : ''), '任務'));
+}
+function missionsModal() {
+  const m = {
+    off: 0,
+    draw() {
+      dim();
+      const list = missionList(), per = 6;
+      withPop(m, 360, 640, () => {
+        plainBoard();
+        ctx.save(); roundRect(260, 160, 200, 60, 14); ctx.fillStyle = '#6f7a1c'; ctx.fill(); ctx.restore();
+        text('任務', 360, 190, { size: 36, align: 'center', weight: 900, color: '#ffe36a', stroke: '#2f3a06' });
+        list.slice(m.off, m.off + per).forEach((it, i) => {
+          const y = 300 + i * 100;
+          ctx.save(); roundRect(96, y - 44, 528, 90, 14); ctx.fillStyle = it.ok ? 'rgba(255,230,120,.22)' : 'rgba(255,240,210,.12)'; ctx.fill(); ctx.restore();
+          text(it.title, 114, y - 20, { size: 23, weight: 900, color: it.soon ? 'rgba(255,255,255,.55)' : '#fff' });
+          text(it.desc, 114, y + 6, { size: 16, weight: 700, color: 'rgba(255,236,204,.85)' });
+          if (!it.soon) text('獎勵：' + rewardText(it.reward), 114, y + 30, { size: 17, weight: 900, color: '#ffd76a' });
+          if (it.ok) { if (textBtn('ms' + i, '領取', 566, y, 96, 52, { layer: 1, size: 24, colors: ['#7fe08a', '#2b9a3c'], edge: '#145b20' }).click) claimMission(it); }
+          else if (!it.soon) text(`${it.prog[0] % 1 ? it.prog[0].toFixed(1) : it.prog[0]}/${it.prog[1]}`, 610, y, { size: 22, weight: 900, align: 'right', color: '#bdf6ff' });
+        });
+        if (list.length > per) {
+          if (textBtn('mpp', '上一頁', 270, 925, 140, 48, { layer: 1, size: 20 }).click) m.off = Math.max(0, m.off - per);
+          if (textBtn('mpn', '下一頁', 450, 925, 140, 48, { layer: 1, size: 20 }).click) m.off = m.off + per < list.length ? m.off + per : m.off;
+        }
+        text('今日任務：' + list.filter(x => x.ok).length + ' 項可以領取', 360, 985, { size: 20, weight: 700, align: 'center', color: '#fff' });
+      });
+      if (btn('msclose', 'fishing/POP-catch/button-close', 672, 190, { s: .72, layer: 1 }).click) closeModal(m);
+    },
+  };
+  return m;
+}
+/* ---------------- 成就 (titles by level) ---------------- */
+function achievementModal() {
+  const m = {
+    tab: 'title',
+    draw() {
+      dim();
+      withPop(m, 360, 640, () => {
+        plainBoard();
+        ctx.save(); roundRect(260, 160, 200, 60, 14); ctx.fillStyle = '#6f7a1c'; ctx.fill(); ctx.restore();
+        text('成就', 360, 190, { size: 36, align: 'center', weight: 900, color: '#ffe36a', stroke: '#2f3a06' });
+        [['title', '稱號'], ['fish', '魚種紀錄']].forEach(([k, label], i) => {
+          if (textBtn('ac' + k, label, 270 + i * 180, 262, 160, 52, { layer: 1, size: 24, colors: m.tab === k ? ['#ffd76a', '#e09a1a'] : ['#8fa4b4', '#4c6070'], edge: m.tab === k ? '#7a4a00' : '#26343f' }).click) m.tab = k;
+        });
+        const lv = LV();
+        if (m.tab === 'title') {
+          TITLES.forEach(([l, name], i) => {
+            const x = i < 7 ? 230 : 490, y = 330 + (i % 7) * 78, got = lv >= l, cur = titleFor(lv) === name;
+            ctx.save(); roundRect(x - 120, y - 30, 240, 62, 16); ctx.fillStyle = cur ? 'rgba(255,214,90,.45)' : got ? 'rgba(255,240,210,.2)' : 'rgba(0,0,0,.18)'; ctx.fill(); if (cur) { ctx.lineWidth = 3; ctx.strokeStyle = '#ffe86a'; ctx.stroke(); } ctx.restore();
+            text(name, x - 100, y, { size: 24, weight: 900, color: got ? '#fff' : 'rgba(255,255,255,.4)', font: 'var(--brush)' });
+            text('Lv.' + l, x + 104, y, { size: 19, weight: 900, align: 'right', color: got ? '#ffd76a' : 'rgba(255,255,255,.4)' });
+          });
+          const nx = TITLES.find(([l]) => l > lv);
+          text(nx ? `下一個稱號「${nx[1]}」還差 ${fmt(Math.max(0, epForLv(nx[0]) - S.ep))} 經驗` : '已達最高稱號，經驗值會繼續累積', 360, 900, { size: 21, weight: 900, align: 'center', color: '#fff' });
+        } else {
+          Object.keys(FISH).forEach((k, i) => {
+            const y = 312 + i * 44; const rec = S.records[k];
+            ui(A.man.meta.species[k].icon, 150, y, { ax: .5, ay: .5, s: .55, a: rec ? 1 : .35 });
+            text(FISH[k].name, 205, y, { size: 23, weight: 900, color: rec ? '#fff' : 'rgba(255,255,255,.45)' });
+            text(rec ? rec + ' 公分' : '尚未釣到', 600, y, { size: 21, weight: 700, color: rec ? '#ffde85' : 'rgba(255,255,255,.45)', align: 'right' });
+          });
+          text(`累計漁獲 ${S.totalCaught} 尾・總重 ${S.stats.kg} 公斤`, 360, 905, { size: 22, align: 'center', weight: 900, color: '#fff' });
+        }
+      });
+      if (btn('acclose2', 'fishing/POP-catch/button-close', 672, 190, { s: .72, layer: 1 }).click) closeModal(m);
+    },
+  };
+  return m;
+}
+/* ---------------- 儲值 / 幸運摸彩 (information only until payment and prize delivery are set up) ---------------- */
+function payModal() {
+  const m = {
+    draw() {
+      dim();
+      withPop(m, 360, 640, () => {
+        plainBoard();
+        ctx.save(); roundRect(260, 160, 200, 60, 14); ctx.fillStyle = '#6f7a1c'; ctx.fill(); ctx.restore();
+        text('儲值', 360, 190, { size: 36, align: 'center', weight: 900, color: '#ffe36a', stroke: '#2f3a06' });
+        const rows = [['台幣', '1 元 = 10 金幣', '300、1000、3000、5000、10000'], ['美金', '1 元 = 300 金幣', '300、1500、3000、15000、30000'], ['人民幣', '1 元 = 50 金幣', '250、500、2500、5000、25000']];
+        text('幣別', 130, 300, { size: 20, weight: 900, color: '#ffd76a' }); text('換算', 250, 300, { size: 20, weight: 900, color: '#ffd76a' }); text('儲值金額', 420, 300, { size: 20, weight: 900, color: '#ffd76a' });
+        rows.forEach(([c, r, a], i) => { const y = 360 + i * 76; text(c, 130, y, { size: 24, weight: 900, color: '#fff' }); text(r, 250, y, { size: 21, weight: 700, color: '#fff' }); const parts = a.split('、'); text(parts.slice(0, 3).join('、') + '、', 420, y - 13, { size: 17, color: '#ffeccc', weight: 700 }); text(parts.slice(3).join('、'), 420, y + 13, { size: 17, color: '#ffeccc', weight: 700 }); });
+        wrapText('儲值將串接第三方金流（PayPal 等）。玩家實得金幣會先扣除金流商抽成，並在儲值頁清楚標示。', 360, 620, 470, 36, { size: 21, align: 'center', color: '#ffeccc', weight: 700 });
+        text('目前尚未開放', 360, 760, { size: 32, weight: 900, align: 'center', color: '#ffe36a', stroke: '#3a1a06', sw: 6 });
+      });
+      if (btn('payclose', 'fishing/POP-catch/button-close', 672, 190, { s: .72, layer: 1 }).click) closeModal(m);
+    },
+  };
+  return m;
+}
+function lotteryModal() {
+  const m = {
+    draw() {
+      dim();
+      withPop(m, 360, 640, () => {
+        plainBoard();
+        ctx.save(); roundRect(240, 160, 240, 60, 14); ctx.fillStyle = '#6f7a1c'; ctx.fill(); ctx.restore();
+        text('幸運摸彩', 360, 190, { size: 36, align: 'center', weight: 900, color: '#ffe36a', stroke: '#2f3a06' });
+        const games = [['赤鐵運盤', '大轉盤', '木魚卡', 1000], ['青銅玄盤', '大轉盤', '銅魚卡', 2000], ['乾坤銀盤', '水果盤', '銀魚卡', 5000], ['太極金盤', '水果盤', '金魚卡', 10000]];
+        games.forEach(([n, ty, card, g], i) => {
+          const y = 310 + i * 92;
+          ctx.save(); roundRect(96, y - 38, 528, 76, 14); ctx.fillStyle = 'rgba(255,240,210,.14)'; ctx.fill(); ctx.restore();
+          text(n, 120, y - 10, { size: 26, weight: 900, color: '#fff', font: 'var(--brush)' });
+          text(`${ty}・需要一張${card}`, 120, y + 20, { size: 18, weight: 700, color: '#ffe0a8' });
+          text(`${fmt(g)} 金幣`, 600, y, { size: 22, weight: 900, align: 'right', color: '#ffd76a' });
+        });
+        wrapText('每轉必中實體獎品。抽中後需填寫收件資料，由官方出貨。', 360, 700, 470, 36, { size: 21, align: 'center', color: '#ffeccc', weight: 700 });
+        text('即將開放，敬請期待', 360, 820, { size: 32, weight: 900, align: 'center', color: '#ffe36a', stroke: '#3a1a06', sw: 6 });
+      });
+      if (btn('lotclose', 'fishing/POP-catch/button-close', 672, 190, { s: .72, layer: 1 }).click) closeModal(m);
+    },
+  };
+  return m;
+}
 /* =====================================================================
    MAIN LOOP
    ===================================================================== */
