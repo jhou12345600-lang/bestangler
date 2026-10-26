@@ -241,6 +241,9 @@ const baitFits = (baitK, rodK) => { const b = BAITS[baitK]; return !!b && (b.rod
 const BAIT_PACK = 10;           // 每一包為十單位
 const HOOK_RATE = .5;           // 震動三秒內揚竿的中魚機率（官方企劃 30%，依需求調高為 50%）
 const BITE_WINDOW = 3;          // 秒
+// 斷線：P + F > S（官方公式）。為了降低斷線機率，多給 15% 的餘裕，且要持續超過 0.8 秒才斷
+const BREAK_MARGIN = 1.15, BREAK_GRACE = .8;
+const WEAK_SNAP = .25;          // 生命值剩 1~5 的舊線，在搏魚中自己斷掉的機率
 // 成就（稱號）by level
 const TITLES = [[1, '初級新手'], [3, '中級老手'], [6, '進階高手'], [10, '職人初段'], [20, '職人二段'], [30, '職人三段'], [40, '名人四段'], [50, '名人五段'], [60, '逹人六段'], [70, '鐵人七段'], [80, '聖手八段'], [90, '神手九段'], [99, '宗師十段']];
 // 等級：須累計經驗值（官方表：前一級 × 1.5 / 1.4 / … / 1.01）
@@ -1878,7 +1881,7 @@ const pond = {
       x: pos.x, z: pos.z, h: Math.PI / 2, th: rnd(0, 6.28), anim: 0, depth: 0, run: 0, rageT: rnd(2, 4), rageDur: 1.4, angry: 0, thrash: 0, life: 1,
       ux: 0, uy: .05, face: -1, phase: 'surface',
       // a worn line (生命值 1~5) may snap on its own during the fight
-      weakAt: lifeLeft <= 5 && Math.random() < .5 ? rnd(3, 14) : null,
+      weakAt: lifeLeft <= 5 && Math.random() < WEAK_SNAP ? rnd(3, 14) : null,
     };
     this.line.L = Math.max(4, Math.hypot(pos.x, pos.z) * 1.6); this.line.T = .2; this.line.Td = .2; this.line.brk = 0;
     this.N = 0; this.lastPress = T; this.pressT0 = null;
@@ -1907,9 +1910,9 @@ const pond = {
     const Feff = this.N < 0 ? F.F * (1 + this.N * .12) : F.F;   // letting line out eases the pull
     this.P = Pv;
     // 斷線：P + F > S
-    const ten = (Pv + Feff) / S_;
+    const ten = (Pv + Feff) / (S_ * BREAK_MARGIN);   // 1.0 = about to snap
     this.line.T = ten; this.line.Td = lerp(this.line.Td, ten, clamp(dt * 6, 0, 1));
-    if (Pv + Feff > S_) { this.line.brk += dt; if (this.line.brk > .3) return this.lose('broken'); } else this.line.brk = Math.max(0, this.line.brk - dt);
+    if (Pv + Feff > S_ * BREAK_MARGIN) { this.line.brk += dt; if (this.line.brk > BREAK_GRACE) return this.lose('broken'); } else this.line.brk = Math.max(0, this.line.brk - dt);
     if (F.weakAt !== null && F.t > F.weakAt) return this.lose('broken');
     // 體力值：每秒扣掉 P/10
     F.U = Math.max(0, F.U - Pv / 10 * dt);
