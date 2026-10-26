@@ -73,9 +73,13 @@ body {
 /* =====================================================================
    神釣手 Best Angler — 2D remaster
    Original art: 鳳翔科技 asset pack (upscaled with Real-ESRGAN).
-   Logical design space 720 x 1280; everything below is drawn in that space.
+   Logical design space: 1280 tall; the width follows the screen from 720 (phone, 9:16)
+   to 2276 (desktop, 16:9). Screens designed for the 720-wide portrait layout are drawn in a
+   centred "panel" (see withView / PX); the pond, lobby map and underwater view use the full width.
    ===================================================================== */
-const LW = 720, LH = 1280;
+let LW = 720; const LH = 1280;
+let PX = 0;                       // left edge of the centred 720-wide portrait panel
+const LANDSCAPE = () => LW > 900;
 const stage = document.getElementById('stage');
 const cv = document.getElementById('cv');
 const glc = document.getElementById('gl');
@@ -427,6 +431,7 @@ function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect ? ctx.roundRe
 /* ---------------- input + immediate-mode buttons ---------------- */
 const P = { x: 0, y: 0, down: false, justDown: false, justUp: false, dx: 0, dy: 0, ux: 0, uy: 0, cap: null, id: null, moved: 0, t0: 0 };
 const keys = {};
+const WHEEL = { dx: 0, dy: 0 };      // mouse wheel, in logical px (lobby map, dock camera)
 let LAYER = 0, ACTIVE_LAYER = 0;
 function toLogical(e) {
   const r = cv.getBoundingClientRect();
@@ -448,17 +453,32 @@ stage.addEventListener('pointermove', e => {
 });
 const endPtr = e => { if (e.pointerId !== P.id) return; [P.ux, P.uy] = toLogical(e); P.x = P.ux; P.y = P.uy; P.down = false; P.justUp = true; P.id = null; };
 stage.addEventListener('pointerup', endPtr);
+stage.addEventListener('wheel', e => {
+  if (e.target && e.target.classList && e.target.classList.contains('field')) return;
+  const k = LW / Math.max(1, cv.getBoundingClientRect().width);
+  WHEEL.dx += e.deltaX * k; WHEEL.dy += e.deltaY * k; e.preventDefault();
+}, { passive: false });
 stage.addEventListener('pointercancel', endPtr);
-addEventListener('keydown', e => { if (e.target === nickEl || (e.target && e.target.classList && e.target.classList.contains('field'))) return; keys[e.code] = true; if (['Space', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault(); audio.unlock(); });
+addEventListener('keydown', e => {
+  if (e.code === 'Escape' && typeof modals !== 'undefined' && modals.length) { const m = modals[modals.length - 1]; if (m.close) m.close(); else closeModal(m); return; }
+  if (e.target === nickEl || (e.target && e.target.classList && e.target.classList.contains('field'))) return; keys[e.code] = true; if (['Space', 'ArrowUp', 'ArrowDown'].includes(e.code)) e.preventDefault(); audio.unlock(); });
 addEventListener('keyup', e => { keys[e.code] = false; });
 const inR = (x, y, r) => r && x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
 // A pressable region. Returns 'click' on release inside, and sets .held while pressed.
+// View transform: drawing inside withView() is offset/scaled; pointer tests are mapped the same way.
+let VT = { x: 0, y: 0, s: 1 };
+function withView(x, y, s, fn) {
+  const old = VT; ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
+  VT = { x: old.x + x * old.s, y: old.y + y * old.s, s: old.s * s };
+  try { fn(); } finally { VT = old; ctx.restore(); }
+}
+const vx = x => (x - VT.x) / VT.s, vy = y => (y - VT.y) / VT.s;   // screen logical -> current view
 function hit(id, r, layer = LAYER) {
   if (layer !== ACTIVE_LAYER) return { click: false, held: false };
-  if (P.justDown && !P.cap && inR(P.dx, P.dy, r)) P.cap = id;
+  if (P.justDown && !P.cap && inR(vx(P.dx), vy(P.dy), r)) P.cap = id;
   const mine = P.cap === id;
-  const held = mine && P.down && inR(P.x, P.y, r);
-  const click = mine && P.justUp && inR(P.ux, P.uy, { x: r.x - 12, y: r.y - 12, w: r.w + 24, h: r.h + 24 });
+  const held = mine && P.down && inR(vx(P.x), vy(P.y), r);
+  const click = mine && P.justUp && inR(vx(P.ux), vy(P.uy), { x: r.x - 12, y: r.y - 12, w: r.w + 24, h: r.h + 24 });
   if (click) audio.click();
   return { click, held };
 }
@@ -917,7 +937,7 @@ precision mediump float;
 #endif
 varying vec2 v;
 uniform sampler2D tex; uniform sampler2D refl; uniform sampler2D uw;
-uniform float t; uniform vec2 res; uniform vec4 rip[16]; uniform vec3 sun; uniform float calm; uniform float bright; uniform float hz; uniform float cam;
+uniform float t; uniform vec2 res; uniform vec4 rip[16]; uniform vec3 sun; uniform float calm; uniform float bright; uniform float hz; uniform float cam; uniform float cx;
 float mir(float u){ float m = mod(u, 2.); return m < 1. ? m : 2. - m; }   // mirrored tiling for the wide pond
 vec3 m289(vec3 x){return x-floor(x*(1./289.))*289.;} vec2 m289(vec2 x){return x-floor(x*(1./289.))*289.;}
 vec3 perm(vec3 x){return m289(((x*34.)+1.)*x);}
@@ -948,7 +968,7 @@ void main(){
   float sc = mix(.15, 1., pow(d, .85));          // perspective size of a wave
   float fy = clamp((240. + px.y - hz)/(1255. - hz), 0., 1.);
   float wx = px.x + cam*fy;                      // world x of this pixel (camera pans along the dock)
-  vec2 g = vec2((wx-360.)/sc, 520./(d+.09));     // position on the water plane
+  vec2 g = vec2((wx-cx)/sc, 520./(d+.09));      // position on the water plane
   float gust = .55 + .75*smoothstep(-.35, .75, sn(g*.0016 + vec2(t*.035, -t*.06)));
   vec2 n = waves(g)*.55
          + vec2(sn(g*.031+vec2(t*.17,t*.05)+3.1), sn(g*.029+vec2(-t*.12,-t*.15)+11.7))*.30
@@ -970,7 +990,7 @@ void main(){
     ringLight += max(0., cos((dist-front)*.23)) * env;
   }
   vec2 off = n * sc * vec2(7., 9.) / res;
-  vec3 col = texture2D(tex, vec2(clamp(mir(wx/res.x + off.x), .001, .999), clamp(v.y + off.y, .001, .999))).rgb;
+  vec3 col = texture2D(tex, vec2(clamp(mir(wx/720. + off.x), .001, .999), clamp(v.y + off.y, .001, .999))).rgb;
   // fish and lures, seen through the moving surface
   vec4 f = texture2D(uw, clamp(v + off*1.9, vec2(.001), vec2(.999)));
   col = mix(col, mix(f.rgb, col*vec3(.62,.86,.86), .22 + .2*(1.-d)), f.a);
@@ -978,7 +998,7 @@ void main(){
   col += vec3(.75,.95,.85) * caustic(g*.022) * smoothstep(.45, 1., d) * .16;
   // live reflection of sky and shore, strongest near the horizon (Fresnel)
   float sy = (2.*hz - (240. + px.y)) / 240.;
-  vec3 rc = texture2D(refl, vec2(clamp(mir(v.x + cam*.1/res.x + off.x*2.4), .002, .998), clamp(sy + off.y*5., .01, .99))).rgb;
+  vec3 rc = texture2D(refl, vec2(clamp(mir((px.x + cam*.1)/720. + off.x*2.4), .002, .998), clamp(sy + off.y*5., .01, .99))).rgb;
   float fres = .04 + .6*pow(1.-d, 3.2);
   col = mix(col, rc, fres * .55);
   // sun: broad sheen plus twinkling glitter in the sun path
@@ -1000,7 +1020,7 @@ void main(){
       this.buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
       const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-      for (const n of ['tex', 'refl', 'uw', 't', 'res', 'rip', 'sun', 'calm', 'bright', 'hz', 'cam']) this.u[n] = gl.getUniformLocation(pr, n);
+      for (const n of ['tex', 'refl', 'uw', 't', 'res', 'rip', 'sun', 'calm', 'bright', 'hz', 'cam', 'cx']) this.u[n] = gl.getUniformLocation(pr, n);
       gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
       this.gl = gl; this.prog = pr; this.ok = true;
     } catch (e) { console.warn('water shader off', e); this.ok = false; }
@@ -1042,7 +1062,7 @@ void main(){
     gl.uniform1f(this.u.t, t); gl.uniform2f(this.u.res, LW, LH - WATER_Y); gl.uniform1f(this.u.hz, HZ);
     const arr = new Float32Array(64);
     this.rip.forEach((r, i) => { arr.set([r.x - this.cam * depthF(r.y + WATER_Y), r.y, r.age, r.amp], i * 4); });
-    gl.uniform1f(this.u.cam, this.cam);
+    gl.uniform1f(this.u.cam, this.cam); gl.uniform1f(this.u.cx, LW / 2);
     gl.uniform4fv(this.u.rip, arr);
     gl.uniform3f(this.u.sun, opts.sunX ?? 470, 0, opts.sun ?? .75);
     gl.uniform1f(this.u.calm, opts.calm ?? 1);
@@ -1053,7 +1073,7 @@ void main(){
 };
 const WATER_Y = 240;
 // Off-screen layer for things under the surface (fish, lures); the water shader refracts it.
-const UW = document.createElement('canvas'); UW.width = 360; UW.height = 520;
+const UW = document.createElement('canvas'); UW.width = Math.round(LW / 2); UW.height = 520;
 const uwx = UW.getContext('2d');
 // Procedural caustic tile for the underwater camera
 const CAUSTIC = (() => {
@@ -1075,6 +1095,10 @@ const CAUSTIC = (() => {
 /* ---------------- layout / resize ---------------- */
 function resize() {
   const wrap = document.getElementById('wrap').getBoundingClientRect();
+  // pick the logical width from the window's shape: portrait phones get 720, desktops up to 16:9
+  LW = Math.round(clamp(LH * wrap.width / Math.max(1, wrap.height), 720, LH * 16 / 9));
+  PX = (LW - 720) / 2;
+  if (typeof UW !== 'undefined') { const w = Math.round(LW / 2); if (UW.width !== w) UW.width = w; }
   const sc = Math.min(wrap.width / LW, wrap.height / LH);
   DPR = Math.min(window.devicePixelRatio || 1, 2.5);
   const cw = Math.max(1, Math.floor(LW * sc)), ch = Math.max(1, Math.floor(LH * sc));
@@ -1123,9 +1147,9 @@ function hudTop(o = {}) {
   text(fmt(S.silver), px + 70, y0 + 66 + 32, { size: 24, weight: 900, color: '#fff', stroke: '#0a4a6a' });
   ui('top-UI/EP-panel', px - 4, y0 + 130, { s: .62 });
   text(fmt(S.ep) + ' EP', px + 50, y0 + 130 + 25, { size: 19, weight: 900, color: '#fff', stroke: '#0a4a6a' });
-  if (btn('pay', 'top-UI/button-payment', 668, y0 + 64, { s: .8, layer: o.layer ?? 0 }).click) openModal(payModal());
+  if (btn('pay', 'top-UI/button-payment', LW - 52, y0 + 64, { s: .8, layer: o.layer ?? 0 }).click) openModal(payModal());
   // sound toggle
-  const sr = { x: 636, y: y0 + 116, w: 70, h: 54 };
+  const sr = { x: LW - 84, y: y0 + 116, w: 70, h: 54 };
   const sh = hit('snd', sr, o.layer ?? 0);
   ctx.save(); roundRect(sr.x + 8, sr.y + 6, 54, 42, 12); ctx.fillStyle = 'rgba(4,40,60,.55)'; ctx.fill(); ctx.restore();
   drawSpeaker(sr.x + 35, sr.y + 27, S.sound);
@@ -1154,11 +1178,18 @@ const titleScene = {
   exit() { hideFields(); },
   update(dt) { this.t += dt; },
   draw() {
-    img('cover-bg', 0, 0, { w: LW, h: LH });
+    if (PX > 0) { // wide screen: the portrait cover in the middle, a soft blurred copy behind it
+      ctx.save(); ctx.filter = 'blur(28px) brightness(.42)'; img('cover-bg', -40, -40, { w: LW + 80, h: LH + 80 }); ctx.restore();
+      ctx.save(); ctx.fillStyle = 'rgba(2,20,24,.35)'; ctx.fillRect(0, 0, LW, LH); ctx.shadowColor = 'rgba(0,0,0,.6)'; ctx.shadowBlur = 40; ctx.fillRect(PX, 0, 720, LH); ctx.restore();
+    }
+    withView(PX, 0, 1, () => this.drawPanel());
+  },
+  drawPanel() {
+    img('cover-bg', 0, 0, { w: 720, h: LH });
     // light sweep
-    const g = ctx.createLinearGradient(0, 0, LW, LH);
+    const g = ctx.createLinearGradient(0, 0, 720, LH);
     g.addColorStop(0, 'rgba(255,240,200,.18)'); g.addColorStop(.5, 'rgba(255,255,255,0)'); g.addColorStop(1, 'rgba(0,30,40,.35)');
-    ctx.fillStyle = g; ctx.fillRect(0, 0, LW, LH);
+    ctx.fillStyle = g; ctx.fillRect(0, 0, 720, LH);
     // loading bar / start
     const by = 1120;
     if (this.ready && NET.mode === 'fire') { this.drawRest(); return; }
@@ -1173,7 +1204,7 @@ const titleScene = {
     if (this.ready && NET.mode !== 'fire') {
       const pulse = .6 + .4 * Math.sin(this.t * 4);
       text('點擊畫面開始釣魚', 360, 1010, { size: 36, weight: 900, align: 'center', color: '#fff', stroke: '#0b3d63', sw: 8, a: .55 + pulse * .45 });
-      const h = hit('start', { x: 0, y: 0, w: LW, h: LH });
+      const h = hit('start', { x: -PX, y: 0, w: LW, h: LH });
       if (h.click) go(lobbyScene);
     }
     this.drawRest();
@@ -1189,8 +1220,8 @@ const titleScene = {
 /* ---------------- login / register (public website) ---------------- */
 const F = { id: document.getElementById('fId'), pw: document.getElementById('fPw'), pw2: document.getElementById('fPw2'), mail: document.getElementById('fMail') };
 function placeField(el, x, y, w, h) {
-  const r = stage.getBoundingClientRect(), k = r.width / LW;
-  el.style.display = 'block'; el.style.left = x * k + 'px'; el.style.top = y * k + 'px'; el.style.width = w * k + 'px'; el.style.height = h * k + 'px';
+  const r = stage.getBoundingClientRect(), k = r.width / LW * VT.s;
+  el.style.display = 'block'; el.style.left = (VT.x + x * VT.s) * r.width / LW + 'px'; el.style.top = (VT.y + y * VT.s) * r.width / LW + 'px'; el.style.width = w * k + 'px'; el.style.height = h * k + 'px';
   el.style.fontSize = Math.max(16, h * .5 * k) + 'px';
 }
 function hideFields() { for (const el of Object.values(F)) { el.style.display = 'none'; } }
@@ -1342,7 +1373,8 @@ function confirmModal(msg, onYes) {
    SCENE: lobby (map with ponds)
    ===================================================================== */
 const lobbyScene = {
-  camX: 0, vx: 0, drag: null, t: 0, birds: [],
+  camX: 0, camY: 0, vx: 0, vy: 0, drag: null, t: 0, birds: [],
+  ms() { return Math.max(1, LW / 1440); },   // the 1440x1280 map is enlarged to fill wide screens
   enter() {
     this.t = 0; audio.ambience(.05);
     if (this.camX === 0) this.camX = 0;
@@ -1362,26 +1394,36 @@ const lobbyScene = {
   },
   update(dt) {
     this.t += dt;
-    const mapW = 1440;
-    if (ACTIVE_LAYER === 0 && P.justDown && P.dy > 250) this.drag = { x: P.x, cam: this.camX, moved: 0 };
-    if (this.drag && P.down) { const nx = this.drag.cam - (P.x - this.drag.x); this.vx = (nx - this.camX) / Math.max(dt, .001); this.camX = nx; }
+    const ms = this.ms(), mapW = 1440 * ms, mapH = 1280 * ms;
+    if (ACTIVE_LAYER === 0 && P.justDown && P.dy > 250) this.drag = { x: P.x, y: P.y, cam: this.camX, camy: this.camY, moved: 0 };
+    if (this.drag && P.down) {
+      const nx = this.drag.cam - (P.x - this.drag.x), ny = this.drag.camy - (P.y - this.drag.y);
+      this.vx = (nx - this.camX) / Math.max(dt, .001); this.vy = (ny - this.camY) / Math.max(dt, .001); this.camX = nx; this.camY = ny;
+    }
     if (this.drag && !P.down) this.drag = null;
-    if (!this.drag) { this.camX += this.vx * dt; this.vx *= Math.pow(.02, dt); }
-    this.camX = clamp(this.camX, 0, mapW - LW);
+    if (!this.drag) { this.camX += this.vx * dt; this.vx *= Math.pow(.02, dt); this.camY += this.vy * dt; this.vy *= Math.pow(.02, dt); }
+    // mouse wheel / arrow keys scroll the map too (desktop)
+    if (keys.ArrowLeft) this.camX -= 600 * dt; if (keys.ArrowRight) this.camX += 600 * dt;
+    if (keys.ArrowUp) this.camY -= 600 * dt; if (keys.ArrowDown) this.camY += 600 * dt;
+    if (WHEEL.dy || WHEEL.dx) { if (mapH > LH + 1) this.camY += WHEEL.dy; else this.camX += WHEEL.dy; this.camX += WHEEL.dx; WHEEL.dx = WHEEL.dy = 0; }
+    this.camX = clamp(this.camX, 0, Math.max(0, mapW - LW)); this.camY = clamp(this.camY, 0, Math.max(0, mapH - LH));
     for (const b of this.birds) { b.x += b.v * dt; b.f += dt * 10; if (b.x > 1500) { b.x = -100; b.y = rnd(160, 420); } }
   },
   draw() {
-    const cx = Math.round(this.camX);
-    img('lobby-map', -cx, 0, { w: 1440, h: 1280 });
+    const ms = this.ms();
+    withView(-Math.round(this.camX), -Math.round(this.camY), ms, () => this.drawMap(Math.round(this.camX / ms)));
+    this.drawUI();
+  },
+  drawMap(cx) {
+    img('lobby-map', 0, 0, { w: 1440, h: 1280 });
     // drifting clouds over the sky band
     const cl = ['lobby-bg-cloud1', 'lobby-bg-cloud2', 'lobby-bg-cloud3'];
-    cl.forEach((k, i) => { const x = ((this.t * (8 + i * 4) + i * 520) % 1900) - 300 - cx * .3; img(k, x, 120 + i * 70, { a: .85, s: .9 }); });
-    for (const b of this.birds) frame('bird', b.f, b.x - cx * .8, b.y, { s: b.s });
+    cl.forEach((k, i) => { const x = ((this.t * (8 + i * 4) + i * 520) % 1900) - 300 + cx * .7; img(k, x, 120 + i * 70, { a: .85, s: .9 }); });
+    for (const b of this.birds) frame('bird', b.f, b.x + cx * .2, b.y, { s: b.s });
     // pond pins
     const lv = LV();
     PONDS.forEach((p, i) => {
-      const x = p.pin[0] - cx, y = p.pin[1] + Math.sin(this.t * 2 + i) * 6;
-      if (x < -100 || x > LW + 100) return;
+      const x = p.pin[0], y = p.pin[1] + Math.sin(this.t * 2 + i) * 6;
       ctx.save(); ctx.globalAlpha = .35; ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(x, p.pin[1] + 92, 34, 10, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
       const b = btn('pond' + p.id, p.btn, x, y, { ay: .5, s: 1 });
       const here = NET.pondPeers(p.id).length;
@@ -1393,12 +1435,15 @@ const lobbyScene = {
       if (b.click && P.moved < 24) { if (lv < p.lv) say(`需要 Lv.${p.lv} 才能解鎖${p.name}`); else openModal(pondBoard(p)); }
     });
     // amusement park (locked)
-    const lx = 760 - cx, ly = 1100;
-    if (lx > -150 && lx < LW + 150) {
+    const lx = 760, ly = 1100;
+    {
       ui('lobby/button-locky-lightwheel', lx, ly, { s: .5, ax: .5, ay: .5, a: .7 });
       if (btn('locky', 'lobby/button-locky', lx, ly, { s: .62 }).click) openModal(lotteryModal());
       ui('lobby/button-pond-locked', lx + 56, ly - 50, { s: .5, ax: .5, ay: .5 });
     }
+  },
+  drawUI() {
+    const cx = Math.round(this.camX);
     // top menu buttons
     hudTop();
     const menu = [['achievement', 'lobby/up-button-achievement'], ['ranking', 'lobby/up-button-ranking'], ['tackle', 'lobby/up-button-tackle'], ['gift', 'lobby/up-button-gift'], ['shop', 'lobby/up-button-shop']];
@@ -1432,14 +1477,17 @@ const lobbyScene = {
     if (NET.canChat()) pill('lchat', '💬 聊天', 528, NET.unread, () => openModal(chatModal('world')));
     if (NET.mode === 'fire') pill('lfr', '👥 好友', 590, Object.keys(NET.requests).length, () => { if (socialOk()) openModal(friendsModal(Object.keys(NET.requests).length ? 'req' : 'list')); });
     pill('lchar', '🧑 換角色', NET.mode === 'fire' ? 652 : NET.canChat() ? 590 : 528, 0, () => openModal(charModal()));
-    frame('missionfx', this.t * 15, 650, 410, { s: .82 });
-    if (btn('mmission', 'lobby/up-button-missions', 650, 410, { s: .98 }).click) openModal(missionsModal());
+    const mxx = LW - 70;
+    frame('missionfx', this.t * 15, mxx, 410, { s: .82 });
+    if (btn('mmission', 'lobby/up-button-missions', mxx, 410, { s: .98 }).click) openModal(missionsModal());
     const nOk = missionList().filter(x => x.ok).length;
-    if (nOk) { ctx.save(); ctx.fillStyle = '#ff4a3a'; ctx.beginPath(); ctx.arc(694, 366, 16, 0, Math.PI * 2); ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#fff'; ctx.stroke(); ctx.restore(); text(String(nOk), 694, 367, { size: 18, weight: 900, align: 'center', color: '#fff' }); }
+    if (nOk) { ctx.save(); ctx.fillStyle = '#ff4a3a'; ctx.beginPath(); ctx.arc(mxx + 44, 366, 16, 0, Math.PI * 2); ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#fff'; ctx.stroke(); ctx.restore(); text(String(nOk), mxx + 44, 367, { size: 18, weight: 900, align: 'center', color: '#fff' }); }
     // scroll hint
-    const pct = this.camX / (1440 - LW);
-    ctx.save(); ctx.globalAlpha = .7; roundRect(260, 1236, 200, 10, 5); ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fill();
-    roundRect(260 + pct * 140, 1236, 60, 10, 5); ctx.fillStyle = '#e8fff8'; ctx.fill(); ctx.restore();
+    const ms = this.ms(), rx = Math.max(1, 1440 * ms - LW), ry = 1280 * ms - LH;
+    ctx.save(); ctx.globalAlpha = .7;
+    if (ry > 1) { roundRect(LW - 22, 470, 10, 300, 5); ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fill(); roundRect(LW - 22, 470 + this.camY / ry * 220, 10, 80, 5); ctx.fillStyle = '#e8fff8'; ctx.fill(); }
+    if (1440 * ms - LW > 1) { const pct = this.camX / rx; roundRect(LW / 2 - 100, 1236, 200, 10, 5); ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fill(); roundRect(LW / 2 - 100 + pct * 140, 1236, 60, 10, 5); ctx.fillStyle = '#e8fff8'; ctx.fill(); }
+    ctx.restore();
   },
 };
 
@@ -1450,7 +1498,8 @@ const HZ = 262;            // horizon line on screen
 // Pond camera: x positions are local to the player (0 = my spot on the dock); CAMX is the camera's offset from me
 // in the same units, so panning moves near things more than far things (true perspective).
 let CAMX = 0;
-const proj = (lx, z) => { const f = 3.2 / (Math.max(z, -2.9) + 3.2); return { x: 360 + (lx - CAMX) * 300 * f, y: HZ + (1255 - HZ) * f, f }; };
+const proj = (lx, z) => { const f = 3.2 / (Math.max(z, -2.9) + 3.2); return { x: LW / 2 + (lx - CAMX) * 300 * f, y: HZ + (1255 - HZ) * f, f }; };
+const meX = () => LW / 2 + 32 - CAMX * 300;                // my angler's body on screen
 const depthF = y => clamp((y - HZ) / (1255 - HZ), 0, 1);  // perspective scale of the water at screen row y
 const DOCK = [-5.6, 5.6];                                   // walkable dock, world units (1 unit = 300 px at the dock)
 const BODY = [392, 1266];                                   // where an angler's body centre / feet sit when the camera is on them
@@ -1622,9 +1671,10 @@ const pond = {
     }
     // camera: follows me; drag the water to look along the dock
     const lock = !['idle', 'wait', 'lure'].includes(st);
-    if (!lock && ACTIVE_LAYER === 0 && P.justDown && !P.cap && P.dy > 430 && P.dy < 940 && P.dx > 110 && P.dx < 600) { P.cap = 'pan'; this.pan = { x: P.x, cam: this.camW }; }
+    if (!lock && ACTIVE_LAYER === 0 && P.justDown && !P.cap && P.dy > 430 && P.dy < 940 && P.dx > 110 && P.dx < LW - 120) { P.cap = 'pan'; this.pan = { x: P.x, cam: this.camW }; }
     if (this.pan && P.cap === 'pan' && P.down) { this.camW = this.pan.cam - (P.x - this.pan.x) / 300; if (P.moved > 12) this.follow = false; }
     if (P.cap !== 'pan') this.pan = null;
+    if (WHEEL.dx || WHEEL.dy) { if (!lock) { this.camW += (WHEEL.dy + WHEEL.dx) / 300; this.follow = false; } WHEEL.dx = WHEEL.dy = 0; }
     if (lock || dir || this.follow) this.camW = lerp(this.camW, this.wx, clamp(dt * (lock ? 5 : 3.5), 0, 1));
     this.camW = clamp(this.camW, DOCK[0] - .3, DOCK[1] + .3);
     CAMX = this.camW - this.wx; water.cam = this.camW * 300;
@@ -1920,7 +1970,7 @@ const pond = {
 
   /* ----- input: 收線按鈕 (spec: tap = one notch up, hold = climbs, 2 s idle = drops one notch a second) ----- */
   readControls(dt) {
-    const cx = 360, cy = 1130, Rr = 118;
+    const cx = LW / 2, cy = 1130, Rr = 118;
     const w = this.wheel;
     const fighting = this.st === 'fight' || this.st === 'hookset';
     // reel handle: rotating it clockwise also reels (lure retrieve uses this)
@@ -2026,12 +2076,12 @@ const pond = {
     this.drawUW();
     ctx.save(); ctx.translate(shake, 0);
     // water via WebGL underneath; if unavailable draw the plain texture
-    const wrote = water.render(this.t, DTF, { sunX: 470 + Math.sin(this.t * .05) * 30, sun: .7, calm: this.st === 'fight' ? 1.15 : 1 });
+    const wrote = water.render(this.t, DTF, { sunX: LW / 2 + 110 + Math.sin(this.t * .05) * 30, sun: .7, calm: this.st === 'fight' ? 1.15 : 1 });
     const camPx = this.camW * 300;
     if (!wrote) this.tiled(p.bgKey + '-bg-water', WATER_Y, LH - WATER_Y, camPx * .6);
     // sky & far shore (far away: they slide only a little as the camera pans)
     this.tiled(p.bgKey + '-bg-top', 0, 240, camPx * .1);
-    if (p.id === 1) ['pond-cloud1', 'pond-cloud2', 'pond-cloud3'].forEach((k, i) => { const x = ((((this.t * (4 + i * 2) + i * 260 - camPx * .05) % 980) + 980) % 980) - 200; img(k, x, 8 + i * 22, { a: .9, s: .8 }); });
+    if (p.id === 1) ['pond-cloud1', 'pond-cloud2', 'pond-cloud3'].forEach((k, i) => { const W2 = LW + 260, x = ((((this.t * (4 + i * 2) + i * 260 - camPx * .05) % W2) + W2) % W2) - 200; img(k, x, 8 + i * 22, { a: .9, s: .8 }); });
     const fogM = A.man.img[p.bgKey + '-fog'];
     if (fogM) this.tiled(p.bgKey + '-fog', 120 + Math.sin(this.t * .2) * 6, fogM.h * LW / fogM.w, camPx * .1, .35 + .1 * Math.sin(this.t * .3));
     // atmospheric haze on the far water
@@ -2058,13 +2108,13 @@ const pond = {
     // friends beside you, then you
     this.drawFriends();
     this.drawAngler();
-    { const mx = BODY[0] - CAMX * 300, top = this.walk.dir ? 735 : 725;
+    { const mx = meX(), top = this.walk.dir ? 735 : 725;
       if (this.dockPeers().length) this.nameTag(S.name, LV(), mx, top + 22, '#ffd76a', true);
       if (NET.says.me) this.drawSay(NET.says.me, mx, top - 30); else this.drawBubble(NET.bubbles.me, mx, top - 30); }
     if (this.st === 'land') this.drawVictory();
     ctx.restore();
     // vignette for depth
-    const vg = ctx.createRadialGradient(360, 720, 300, 360, 720, 900);
+    const vg = ctx.createRadialGradient(LW / 2, 720, 300, LW / 2, 720, 900 + PX);
     vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,20,25,.32)');
     ctx.fillStyle = vg; ctx.fillRect(0, 0, LW, LH);
     this.drawHUD();
@@ -2158,7 +2208,7 @@ const pond = {
     const rod = this.rod();
     const fightPose = FIGHT_ST.includes(this.st);
     const walking = this.walk.dir !== 0;
-    const hand = charHand(S.char, { x: BODY[0] - CAMX * 300, feet: BODY[1], fight: fightPose, walk: walking ? this.walk : null });
+    const hand = charHand(S.char, { x: meX(), feet: BODY[1], fight: fightPose, walk: walking ? this.walk : null });
     let ang, len = rod.len;
     if (walking) ang = -Math.PI * .5 + this.walk.dir * .42 + Math.sin(this.walk.ph * Math.PI * 4) * .03;
     else if (this.st === 'cast') {
@@ -2208,7 +2258,7 @@ const pond = {
     if (this.st === 'cast') { /* whip already in angle */ }
     // rod behind the angler when idle or walking (in front when raised)
     if (!fightPose) this.drawRod(g.hand, tip, g.len, tension);
-    drawChar(S.char, { x: BODY[0] - CAMX * 300, feet: BODY[1], fight: fightPose, walk: this.walk.dir ? this.walk : null, t: this.t });
+    drawChar(S.char, { x: meX(), feet: BODY[1], fight: fightPose, walk: this.walk.dir ? this.walk : null, t: this.t });
     if (fightPose) this.drawRod(g.hand, tip, g.len, tension);
     // fishing line
     if (tgt) this.drawLine(tip, tgt);
@@ -2257,7 +2307,7 @@ const pond = {
   // 撈魚: the angler scoops the tired fish out with a landing net
   drawLandingFish() {
     const F = this.fish; if (!F) return;
-    const t = this.stT, dx = -CAMX * 300;
+    const t = this.stT, dx = meX() - 392;
     const n = A.man.anim['under-' + F.sp];
     const fwid = clamp(F.len * 4.2, 120, 330), s = n ? fwid / n.fw : 1;
     const water0 = [250 + dx, 880];
@@ -2290,8 +2340,8 @@ const pond = {
     // victory badge
     if (t > .9) {
       const k = easeBack(clamp((t - .9) / .45, 0, 1));
-      img('victory-light', 360, 560, { ax: .5, ay: .5, s: .9 + Math.sin(T * 2) * .05, a: .8 });
-      img('victory', 360, 560, { ax: .5, ay: .5, s: k * 1.15 });
+      img('victory-light', LW / 2, 560, { ax: .5, ay: .5, s: .9 + Math.sin(T * 2) * .05, a: .8 });
+      img('victory', LW / 2, 560, { ax: .5, ay: .5, s: k * 1.15 });
       if (!this._won) { this._won = true; audio.win(); }
     } else this._won = false;
   },
@@ -2300,18 +2350,18 @@ const pond = {
   drawUnder() {
     const F = this.fish, dt = DTF, t = this.t;
     const BG = A.man.img['uw-bg'], bgW = BG ? BG.w : 2560;     // 2560 x 1280 logical
-    const U = this.uv || (this.uv = { cam: F ? F.ux : 0, x: 360, y: 300, vy: 0, turn: -1, face: F ? F.face : -1 });
+    const U = this.uv || (this.uv = { cam: F ? F.ux : 0, x: LW / 2, y: 300, vy: 0, turn: -1, face: F ? F.face : -1 });
     if (F) U.cam = lerp(U.cam, F.ux, clamp(dt * 1.6, 0, 1));
-    const camX = U.cam - 360;
+    const camX = U.cam - LW / 2;
     // background: the official lake, mirrored side by side so the fish can swim on
     if (BG && A.tex['img:uw-bg']) {
       const sh = ((camX % (bgW * 2)) + bgW * 2) % (bgW * 2);
       for (let i = -1; i <= 2; i++) { const x = i * bgW - sh; if (x > LW || x + bgW < 0) continue; img('uw-bg', Math.floor(x), 0, { w: bgW + 1, h: LH, flip: ((i % 2) + 2) % 2 === 1 }); }
-    } else { const m = A.man.anim.underwave; if (m) frame('underwave', t * 10, 360, 640, { s: 1.22, ax: .5, ay: .5 }); else { ctx.fillStyle = '#0d4a3e'; ctx.fillRect(0, 0, LW, LH); } }
+    } else { const m = A.man.anim.underwave; if (m) frame('underwave', t * 10, LW / 2, 640, { s: 1.22, ax: .5, ay: .5 }); else { ctx.fillStyle = '#0d4a3e'; ctx.fillRect(0, 0, LW, LH); } }
     // moving light on the surface band and drifting shafts
     ctx.save(); ctx.globalCompositeOperation = 'lighter';
-    for (let i = 0; i < 6; i++) {
-      const x = ((i * 150 - camX * .35 + Math.sin(t * .4 + i) * 40) % 900 + 900) % 900 - 90;
+    for (let i = 0; i < Math.ceil(LW / 120); i++) {
+      const x = ((i * 150 - camX * .35 + Math.sin(t * .4 + i) * 40) % (LW + 180) + LW + 180) % (LW + 180) - 90;
       const g = ctx.createLinearGradient(x, 120, x + 120, 900);
       g.addColorStop(0, `rgba(180,255,220,${.08 + .05 * Math.sin(t * .7 + i * 2)})`); g.addColorStop(1, 'rgba(180,255,220,0)');
       ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(x - 20, 120); ctx.lineTo(x + 40, 120); ctx.lineTo(x + 200, 1000); ctx.lineTo(x + 60, 1000); ctx.fill();
@@ -2328,7 +2378,7 @@ const pond = {
       const wantW = clamp(200 * (.75 + F.len / 100), 170, 520) * layer;
       const s = wantW / fw;
       let ty = 150 + F.uy * 860;
-      const tx = 360 + (F.ux - U.cam);
+      const tx = LW / 2 + (F.ux - U.cam);
       const py = U.y; U.x = lerp(U.x, tx, clamp(dt * 3, 0, 1)); U.y = lerp(U.y, ty, clamp(dt * 1.8, 0, 1)); U.vy = lerp(U.vy, (U.y - py) / Math.max(dt, .001), .1);
       if (U.turn < 0 && F.face !== U.face) U.turn = 0;
       const ret = n ? (n.ret || 0) : 0, swim = n ? (n.swim || 12) : 12;
@@ -2347,7 +2397,7 @@ const pond = {
       if (n) frame('under-' + F.sp, fi, U.x, U.y + wob, { s, ax: .5, ay: .55, flip, rot: tilt, a: 1 - haze });
       // the line from the rod (upper right) to the mouth, coloured and trembling with tension
       const mx = U.x + (flip ? 1 : -1) * (fw * .5 - 60) * s, my = U.y + wob + (400 - fh * .55) * s;
-      const ex = 600 + Math.sin(t * 1.3) * 6, ey = 118;
+      const ex = LW / 2 + 240 + Math.sin(t * 1.3) * 6, ey = 118;
       const Tn = this.line.Td, slack = 1 - clamp(this.line.T * 1.8, 0, 1);
       const col = Tn > .85 ? `rgba(255,${90 + 60 * Math.sin(t * 20)},70,.95)` : Tn > .6 ? 'rgba(255,214,120,.9)' : 'rgba(240,255,255,.82)';
       const vib = Tn > .55 ? (Tn - .55) * 9 : 0;
@@ -2383,7 +2433,7 @@ const pond = {
     for (const b of this.bub) { b.y -= b.v * dt; b.x += Math.sin(t * 3 + b.r) * .5; b.life += dt; ctx.strokeStyle = 'rgba(220,255,250,.6)'; ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.stroke(); ctx.fillStyle = 'rgba(255,255,255,.5)'; ctx.beginPath(); ctx.arc(b.x - b.r * .35, b.y - b.r * .35, b.r * .25, 0, Math.PI * 2); ctx.fill(); }
     this.bub = this.bub.filter(b => b.y > 110);
     ctx.restore();
-    const vg = ctx.createRadialGradient(360, 640, 260, 360, 640, 860);
+    const vg = ctx.createRadialGradient(LW / 2, 640, 260, LW / 2, 640, 860 + PX);
     vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,25,20,.45)');
     ctx.fillStyle = vg; ctx.fillRect(0, 0, LW, LH);
     this.drawHUD();
@@ -2403,7 +2453,7 @@ const pond = {
     for (const { pe, x } of list) {
       const pr = pe.presence; const fightPose = FIGHT_ST.includes(pr.st);
       const m = x - this.wx;                                   // their spot, relative to mine
-      const cx = BODY[0] + (m - CAMX) * 300, feet = BODY[1] - 8;
+      const cx = LW / 2 + 32 + (m - CAMX) * 300, feet = BODY[1] - 8;
       if (cx < -260 || cx > LW + 260) continue;
       const walk = +pr.w && pr.st === 'idle' ? { dir: +pr.w > 0 ? 1 : -1, ph: this.peerPh[pe.peer] || 0 } : null;
       const c = pr.c === 'b' ? 'boy' : 'girl';
@@ -2488,7 +2538,7 @@ const pond = {
     const n = this.dockPeers().length;
     text(n ? `碼頭上還有 ${n} 位釣友・拖曳水面看看` : '拖曳水面可以沿著碼頭看', 320, my + 34, { size: 17, weight: 700, align: 'center', color: 'rgba(235,255,255,.85)', stroke: 'rgba(0,30,40,.6)', sw: 4 });
     if (Math.abs(this.camW - this.wx) > .35 && !this.follow) {
-      if (textBtn('backme', '回到自己', 360, 290, 160, 46, { size: 22, colors: ['#ffd76a', '#e09a1a'], edge: '#7a4a00' }).click) this.follow = true;
+      if (textBtn('backme', '回到自己', 360 + (LANDSCAPE() ? 0 : 0), 290, 160, 46, { size: 22, colors: ['#ffd76a', '#e09a1a'], edge: '#7a4a00' }).click) this.follow = true;
     }
     // walk along the dock to change spots (only while the line is in)
     this.walkHeld = 0;
@@ -2499,15 +2549,15 @@ const pond = {
         ctx.fillStyle = h.held ? '#4a2a00' : '#fff'; ctx.beginPath(); ctx.moveTo(x + dir * 16, 1004); ctx.lineTo(x - dir * 10, 988); ctx.lineTo(x - dir * 10, 1020); ctx.closePath(); ctx.fill(); ctx.restore();
         if (h.held || (P.cap === id && P.down)) this.walkHeld = dir;
       };
-      arrow('walkL', 58, -1); arrow('walkR', 662, 1);
+      arrow('walkL', 58, -1); arrow('walkR', LW - 58, 1);
       text('走動', 58, 1060, { size: 18, weight: 900, align: 'center', color: '#fff', stroke: '#063247', sw: 4 });
-      text('走動', 662, 1060, { size: 18, weight: 900, align: 'center', color: '#fff', stroke: '#063247', sw: 4 });
+      text('走動', LW - 58, 1060, { size: 18, weight: 900, align: 'center', color: '#fff', stroke: '#063247', sw: 4 });
     }
-    chatButton(566, 222);
+    chatButton(LW - 154, 222);
   },
   drawEmoteBar() {
     if (!NET.room || !NET.canEmit) return;
-    const eb = { x: 640, y: 222, w: 64, h: 64 };
+    const eb = { x: LW - 80, y: 222, w: 64, h: 64 };
     const h = hit('emote', eb);
     ctx.save(); roundRect(eb.x, eb.y, eb.w, eb.h, 20); ctx.fillStyle = this.emoteOpen ? 'rgba(255,214,90,.9)' : 'rgba(4,40,60,.6)'; ctx.fill(); ctx.restore();
     text('😊', eb.x + 32, eb.y + 30, { size: 30, align: 'center' }); text('表情', eb.x + 32, eb.y + 56, { size: 14, weight: 900, align: 'center', color: '#fff' });
@@ -2515,7 +2565,7 @@ const pond = {
     if (!this.emoteOpen) return;
     EMOTES.forEach(([e, label], i) => {
       const r = { x: 380 - (i % 3) * 0, y: 0, w: 0, h: 0 };
-      const x = 418 + (i % 3) * 74, y = 300 + Math.floor(i / 3) * 74;
+      const x = LW - 302 + (i % 3) * 74, y = 300 + Math.floor(i / 3) * 74;
       r.x = x - 32; r.y = y - 32; r.w = 64; r.h = 64;
       ctx.save(); roundRect(r.x, r.y, r.w, r.h, 18); ctx.fillStyle = 'rgba(255,250,240,.94)'; ctx.fill(); ctx.restore();
       text(e, x, y + 2, { size: 32, align: 'center' });
@@ -2524,30 +2574,31 @@ const pond = {
   },
   /* ----- HUD & controls ----- */
   drawHUD() {
+    const C = LW / 2, RS = LW - 720;   // centre and right-edge shift for wide screens
     const st = this.st;
     const fighting = st === 'fight' || st === 'hookset';
     if (fighting || st === 'land') this.drawFightTop(); else hudTop();
     // banners
     if (this.banner && this.banner.k === 'get' && this.view === 'surface' && st !== 'hookset') {
-      const k = easeBack(clamp(this.banner.t / .3, 0, 1)); ui('fishing/get-fish', 360, 520, { ax: .5, ay: .5, s: k, a: 1 - clamp((this.banner.t - 1.1) / .3, 0, 1) });
+      const k = easeBack(clamp(this.banner.t / .3, 0, 1)); ui('fishing/get-fish', C, 520, { ax: .5, ay: .5, s: k, a: 1 - clamp((this.banner.t - 1.1) / .3, 0, 1) });
       if (this.lureStrike || (this.approach && this.approach.phase === 'bite')) hint(`快按「揚竿」！（${Math.max(0, BITE_WINDOW - (this.lureStrike ? this.lureStrike.t : this.approach.biteT)).toFixed(1)} 秒）`, 600);
     }
     if (this.banner && this.banner.k === 'gold') {
       const k = easeBack(clamp(this.banner.t / .3, 0, 1)), a = 1 - clamp((this.banner.t - 1.6) / .4, 0, 1);
-      ctx.save(); ctx.globalAlpha = a; ctx.translate(360, 560); ctx.scale(k, k);
+      ctx.save(); ctx.globalAlpha = a; ctx.translate(C, 560); ctx.scale(k, k);
       const g = ctx.createRadialGradient(0, 0, 10, 0, 0, 220); g.addColorStop(0, 'rgba(255,230,120,.75)'); g.addColorStop(1, 'rgba(255,200,60,0)');
       ctx.fillStyle = g; ctx.fillRect(-240, -140, 480, 280); ctx.restore();
-      text('采金魚上鉤！', 360, 560, { size: 54, weight: 900, align: 'center', color: '#fff3a0', stroke: '#7a3a00', sw: 10, a });
+      text('采金魚上鉤！', C, 560, { size: 54, weight: 900, align: 'center', color: '#fff3a0', stroke: '#7a3a00', sw: 10, a });
     }
     if (st === 'lost') {
       const k = easeBack(clamp(this.stT / .35, 0, 1));
-      ui('Lose', 360, 560, { ax: .5, ay: .5, s: k * 1.05 });
-      ui(this.loseWhy === 'broken' ? 'Lose-broken' : 'Lose-run.away', 430, 600, { ax: .5, ay: .5, s: k * 1.6 });
+      ui('Lose', C, 560, { ax: .5, ay: .5, s: k * 1.05 });
+      ui(this.loseWhy === 'broken' ? 'Lose-broken' : 'Lose-run.away', C + 70, 600, { ax: .5, ay: .5, s: k * 1.6 });
     }
     if (toast.t > 0) {
       const a = clamp(toast.t / .3, 0, 1);
-      ctx.save(); ctx.globalAlpha = a; roundRect(80, 380, 560, 70, 20); ctx.fillStyle = 'rgba(10,30,40,.72)'; ctx.fill(); ctx.restore();
-      text(toast.msg, 360, 416, { size: 28, align: 'center', weight: 700, color: '#fff', a });
+      ctx.save(); ctx.globalAlpha = a; roundRect(C - 280, 380, 560, 70, 20); ctx.fillStyle = 'rgba(10,30,40,.72)'; ctx.fill(); ctx.restore();
+      text(toast.msg, C, 416, { size: 28, align: 'center', weight: 700, color: '#fff', a });
     }
     // right column tackle slots
     if (!fighting && st !== 'land') this.drawTackleColumn();
@@ -2557,27 +2608,28 @@ const pond = {
     if (st === 'idle') {
       if (btn('back', 'fishing/button-back to lobby', 70, by, { s: .9 }).click) go(lobbyScene);
       if (btn('catch', 'fishing/button-catch', 190, by, { s: .9 }).click) openModal(catchListModal());
-      if (btn('throw', 'fishing/button-throw', 360, by - 12, { s: 1, glow: true }).click) { const err = this.tackleOk(); if (err) openModal(messageModal(err, '提示')); else { this.setState('aim'); this.charge = 0; this.charging = false; } }
-      if (btn('tackle', 'fishing/button-tackle', 650, by, { s: .9 }).click) openModal(tackleModal());
+      const spaceNow = keys.Space && !this._spaceLatch; this._spaceLatch = keys.Space;
+      if (btn('throw', 'fishing/button-throw', C, by - 12, { s: 1, glow: true }).click || spaceNow) { const err = this.tackleOk(); if (err) openModal(messageModal(err, '提示')); else { this.setState('aim'); this.charge = 0; this.charging = false; } }
+      if (btn('tackle', 'fishing/button-tackle', 650 + RS, by, { s: .9 }).click) openModal(tackleModal());
     } else if (st === 'aim') {
       if (btn('back2', 'fishing/button-back to lobby', 70, by, { s: .9 }).click) this.setState('idle');
       // 下注 (休閒池 only): fee per cast = bet; catches pay × bet
-      ui('fishing/mid-reel-number-bar', 360, by + 48, { ax: .5, ay: .5, s: 1 });
+      ui('fishing/mid-reel-number-bar', C, by + 48, { ax: .5, ay: .5, s: 1 });
       if (this.p.bet) {
-        text('下注 ' + this.bet, 360, by + 50, { size: 26, align: 'center', weight: 900, color: '#fff', stroke: '#2b0d4a' });
-        if (btn('minus', 'fishing/UI-button-mid-reel-minus', 230, by + 46, { press: 'fishing/UI-button-mid-reel-minus-press', s: .78 }).click) this.bet = clamp(this.bet - (this.bet > 10 ? 5 : 1), 1, BET_MAX);
-        if (btn('plus', 'fishing/UI-button-mid-reel-plus', 490, by + 46, { press: 'fishing/UI-button-mid-reel-plus-press', s: .78 }).click) this.bet = clamp(this.bet + (this.bet >= 10 ? 5 : 1), 1, Math.max(1, Math.min(BET_MAX, S.silver)));
-      } else text(this.p.fee.per === 'cast' ? `每竿 ${this.p.fee.amt} 金幣` : '已付入場費', 360, by + 50, { size: 24, align: 'center', weight: 900, color: '#fff', stroke: '#2b0d4a' });
+        text('下注 ' + this.bet, C, by + 50, { size: 26, align: 'center', weight: 900, color: '#fff', stroke: '#2b0d4a' });
+        if (btn('minus', 'fishing/UI-button-mid-reel-minus', C - 130, by + 46, { press: 'fishing/UI-button-mid-reel-minus-press', s: .78 }).click) this.bet = clamp(this.bet - (this.bet > 10 ? 5 : 1), 1, BET_MAX);
+        if (btn('plus', 'fishing/UI-button-mid-reel-plus', C + 130, by + 46, { press: 'fishing/UI-button-mid-reel-plus-press', s: .78 }).click) this.bet = clamp(this.bet + (this.bet >= 10 ? 5 : 1), 1, Math.max(1, Math.min(BET_MAX, S.silver)));
+      } else text(this.p.fee.per === 'cast' ? `每竿 ${this.p.fee.amt} 金幣` : '已付入場費', C, by + 50, { size: 24, align: 'center', weight: 900, color: '#fff', stroke: '#2b0d4a' });
       // hold to charge cast distance
-      const tb = btn('throw2', 'fishing/UI-button-mid-reel-throw', 360, by - 40, { press: 'fishing/UI-button-mid-reel-throw-press', s: 1.05 });
+      const tb = btn('throw2', 'fishing/UI-button-mid-reel-throw', C, by - 40, { press: 'fishing/UI-button-mid-reel-throw-press', s: 1.05 });
       if (tb.held && !this.charging) { this.charging = 'ptr'; this.stT = 0; }
       if (keys.Space && !this.charging) { this.charging = 'key'; this.stT = 0; }
       if (this.charging) {
         // power arc
         ctx.save(); ctx.lineWidth = 12; ctx.lineCap = 'round';
-        ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.arc(360, by - 40, 98, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke();
-        const g = ctx.createLinearGradient(260, 0, 460, 0); g.addColorStop(0, '#6ef26e'); g.addColorStop(.6, '#ffd84a'); g.addColorStop(1, '#ff5a3a');
-        ctx.strokeStyle = g; ctx.beginPath(); ctx.arc(360, by - 40, 98, Math.PI * 1.1, Math.PI * (1.1 + .8 * this.charge)); ctx.stroke(); ctx.restore();
+        ctx.strokeStyle = 'rgba(0,0,0,.35)'; ctx.beginPath(); ctx.arc(C, by - 40, 98, Math.PI * 1.1, Math.PI * 1.9); ctx.stroke();
+        const g = ctx.createLinearGradient(C - 100, 0, C + 100, 0); g.addColorStop(0, '#6ef26e'); g.addColorStop(.6, '#ffd84a'); g.addColorStop(1, '#ff5a3a');
+        ctx.strokeStyle = g; ctx.beginPath(); ctx.arc(C, by - 40, 98, Math.PI * 1.1, Math.PI * (1.1 + .8 * this.charge)); ctx.stroke(); ctx.restore();
         hint('放開手指出竿');
       } else hint('按住「拋」蓄力，放開出竿');
       if ((this.charging === 'ptr' && !P.down) || (this.charging === 'key' && !keys.Space)) { this.charging = false; this.startCast(this.charge); }
@@ -2586,23 +2638,23 @@ const pond = {
       if (btn('catch2', 'fishing/button-catch', 190, by, { s: .9 }).click) openModal(catchListModal());
       if (st === 'wait') {
         const biting = this.approach && this.approach.phase === 'bite';
-        const pb = btn('pull', 'fishing/button-pull', 600, by - 12, { s: 1.05, glow: biting, glowColor: 'rgba(120,255,140,.95)' });
+        const pb = btn('pull', 'fishing/button-pull', 600 + RS, by - 12, { s: 1.05, glow: biting, glowColor: 'rgba(120,255,140,.95)' });
         if (pb.click || (keys.Space && !this._spaceLatch)) this.strike();
         this._spaceLatch = keys.Space;
       } else {
         this.drawReel(by - 70);
         if (this.lureStrike) {
-          const pb = btn('pull', 'fishing/button-pull', 600, by - 12, { s: 1.05, glow: true, glowColor: 'rgba(120,255,140,.95)' });
+          const pb = btn('pull', 'fishing/button-pull', 600 + RS, by - 12, { s: 1.05, glow: true, glowColor: 'rgba(120,255,140,.95)' });
           if (pb.click || (keys.ArrowUp && !this._spaceLatch)) this.strike();
           this._spaceLatch = keys.ArrowUp;
         } else hint('順時針轉動捲線器收線，速度適中魚才會追');
       }
-      if (st === 'wait' && btn('tackle2', 'fishing/button-tackle', 450, by, { s: .9 }).click) openModal(tackleModal());
+      if (st === 'wait' && btn('tackle2', 'fishing/button-tackle', 450 + RS, by, { s: .9 }).click) openModal(tackleModal());
     } else if (fighting) {
       this.drawReel(by - 70);
       this.drawNotches(by - 70);
       // underwater view toggle (only fish over 40 cm go under water)
-      const ub = { x: 600, y: by - 130, w: 104, h: 104 };
+      const ub = { x: 600 + RS, y: by - 130, w: 104, h: 104 };
       if (this.fish && this.fish.phase === 'under') {
       const uh = hit('under', ub);
       ctx.save(); roundRect(ub.x, ub.y, ub.w, ub.h, 26); ctx.fillStyle = this.view === 'under' ? 'rgba(80,200,255,.75)' : 'rgba(5,40,60,.62)'; ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#bff3ff'; ctx.stroke(); ctx.restore();
@@ -2613,12 +2665,12 @@ const pond = {
     // room time left
     if (this.p.fee.per === 'room' && S.room && S.room.p === this.p.id && !fighting) {
       const left = Math.max(0, S.room.until - Date.now()), mm = Math.floor(left / 60000), ss = Math.floor(left / 1000) % 60;
-      text(`剩餘 ${mm}:${String(ss).padStart(2, '0')}`, 704, 304, { size: 20, weight: 900, align: 'right', color: left < 60000 ? '#ff8a7a' : '#e9fffb', stroke: '#063247', sw: 4 });
+      text(`剩餘 ${mm}:${String(ss).padStart(2, '0')}`, LW - 16, 304, { size: 20, weight: 900, align: 'right', color: left < 60000 ? '#ff8a7a' : '#e9fffb', stroke: '#063247', sw: 4 });
     }
   },
   // 數值光條：收線 10 格（上）、放線 5 格（下）
   drawNotches(cy) {
-    const x = 500, top = cy - 150, cell = 15, n = this.N || 0;
+    const x = LW / 2 + 140, top = cy - 150, cell = 15, n = this.N || 0;
     ctx.save(); roundRect(x - 6, top - 6, 34, cell * 15 + 12, 10); ctx.fillStyle = 'rgba(3,25,35,.62)'; ctx.fill();
     for (let i = 0; i < 15; i++) {
       const v = 10 - i;               // 10 … 1 then 0 … -4
@@ -2634,7 +2686,7 @@ const pond = {
     text('放', x + 11, top + cell * 15 + 18, { size: 16, weight: 900, align: 'center', color: '#bfe6ff', stroke: '#063247', sw: 3 });
   },
   drawTackleColumn() {
-    const x = 622, y0 = 330;
+    const x = LW - 98, y0 = 330;
     const rod = S.equip.rod, ln = S.equip.line, fl = S.equip.float, bt = S.equip.bait;
     const items = [['tackle-icons/rods/' + rod, null], [lineIcon(ln), null]];
     if (!this.isLure()) items.push(['tackle-icons/floats/' + fl, null]);
@@ -2649,13 +2701,17 @@ const pond = {
     });
   },
   drawReel(cy) {
-    const cx = 360;
+    const cx = LW / 2;
     ui('fighting-top-UI/reel-round', cx, cy, { ax: .5, ay: .5, s: 1 });
     const a = this.wheel.ang;
     ui('fighting-top-UI/reel-handle', cx + Math.cos(a) * 82, cy + Math.sin(a) * 82, { ax: .5, ay: .5, s: 1 });
     const pr = { x: cx - 56, y: cy - 56, w: 112, h: 112 };
     if (this.st !== 'lure') {
-      if (P.justDown && ACTIVE_LAYER === 0 && inR(P.dx, P.dy, pr)) P.cap = 'pump';
+      if (P.justDown && ACTIVE_LAYER === 0 && inR(P.dx, P.dy, pr)) {
+        P.cap = 'pump';
+        // count the tap right away so even a very quick click moves the bar up one notch
+        if (this.st === 'fight' || this.st === 'hookset') { this.N = Math.min(10, Math.floor(this.N + 1e-6) + 1); this.pressT0 = T; this.lastPress = T; this._pressed = true; audio.tone(520 + this.N * 40, .04, 'square', .05); }
+      }
       const held = this.pump;
       ui(held ? 'fighting-top-UI/reel-button-press' : 'fighting-top-UI/reel-button', cx, cy, { ax: .5, ay: .5, s: held ? .9 : .95 });
     } else {
@@ -2700,23 +2756,24 @@ const pond = {
       if (F.angry > 0) frame('angry', this.t * 24, LW - 64, 66, { s: .62, a: Math.min(1, F.angry * 2) });
       text((F.golden ? '采金 ' : '') + FISH[F.sp].name, LW - 128, 128, { size: 22, align: 'right', weight: 900, stroke: '#00263a', color: F.golden ? '#ffd24a' : '#ffe9a0' });
       // spec values, small: 釣力 P / 魚力 F / 承受力 S
-      text(`釣力 ${Math.round(this.P || 0)}　魚力 ${Math.round(F.F)}　承受力 ${LINES[S.equip.line].S}`, 360, 166, { size: 17, align: 'center', weight: 700, color: '#e9fbff', stroke: '#063247', sw: 4 });
+      text(`釣力 ${Math.round(this.P || 0)}　魚力 ${Math.round(F.F)}　承受力 ${LINES[S.equip.line].S}`, LW / 2, 166, { size: 17, align: 'center', weight: 700, color: '#e9fbff', stroke: '#063247', sw: 4 });
     }
     // distance
     const dist = Math.max(0, Math.ceil(this.line.L));
-    digits('fighting-top-UI/distance-number-', String(dist).padStart(2, '0'), 360, 92, { align: 'center', s: .95 });
-    text('公尺', 360, 136, { size: 18, align: 'center', weight: 700, color: '#e9fbff', stroke: '#063247' });
+    digits('fighting-top-UI/distance-number-', String(dist).padStart(2, '0'), LW / 2, 92, { align: 'center', s: .95 });
+    text('公尺', LW / 2, 136, { size: 18, align: 'center', weight: 700, color: '#e9fbff', stroke: '#063247' });
     // clock
     const d = new Date(); const hhmm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
-    digits('fishing/time-number-', hhmm, 360, 30, { align: 'center', s: .7 });
+    digits('fishing/time-number-', hhmm, LW / 2, 30, { align: 'center', s: .7 });
     if (warn) { ctx.save(); ctx.globalAlpha = .18 + .12 * Math.sin(this.t * 20); ctx.fillStyle = '#ff2a1a'; ctx.fillRect(0, 0, LW, LH); ctx.restore(); }
   },
 };
 function hint(msg, y = 452) {
   ctx.font = '700 23px "Noto Sans TC",sans-serif';
   const w = ctx.measureText(msg).width + 44;
-  ctx.save(); roundRect(360 - w / 2, y - 24, w, 48, 24); ctx.fillStyle = 'rgba(4,30,40,.62)'; ctx.fill(); ctx.restore();
-  text(msg, 360, y + 1, { size: 23, align: 'center', weight: 700, color: '#f2fdff' });
+  const cx = vx(LW / 2);
+  ctx.save(); roundRect(cx - w / 2, y - 24, w, 48, 24); ctx.fillStyle = 'rgba(4,30,40,.62)'; ctx.fill(); ctx.restore();
+  text(msg, cx, y + 1, { size: 23, align: 'center', weight: 700, color: '#f2fdff' });
 }
 function drawEye(x, y) {
   ctx.save(); ctx.translate(x, y); ctx.strokeStyle = '#eaffff'; ctx.lineWidth = 3.5; ctx.fillStyle = '#eaffff';
@@ -2735,13 +2792,18 @@ const catchScene = {
   update(dt) { this.t += dt; },
   draw() {
     const r = this.r, t = this.t;
-    img('catch-BG-sky', 0, 0, { w: LW });
-    img('catch-BG-cloud1', ((t * 8) % 1300) - 460, 40, { a: .9 });
-    img('catch-BG-cloud2', ((t * 5 + 600) % 1300) - 460, 140, { a: .8 });
-    frame('catchwater', t * 12, 0, 520, { ax: 0, ay: 0 });
-    img('catch-BG-shore', 0, 250, { w: LW });
+    // scenery: the 720-wide art in the middle, mirrored copies to the sides on wide screens
+    const across = fn => { for (let i = -Math.ceil(PX / 720); i <= Math.ceil(PX / 720); i++) fn(PX + i * 720, (i & 1) !== 0); };
+    across((x, f) => img('catch-BG-sky', x, 0, { w: 721, flip: f }));
+    img('catch-BG-cloud1', ((t * 8) % (LW + 580)) - 460, 40, { a: .9 });
+    img('catch-BG-cloud2', ((t * 5 + 600) % (LW + 580)) - 460, 140, { a: .8 });
+    across((x, f) => frame('catchwater', t * 12, x + (f ? 720 : 0), 520, { ax: 0, ay: 0, flip: f }));
+    across((x, f) => img('catch-BG-shore', x, 250, { w: 721, flip: f }));
+    across((x, f) => img('catch-UI-down-board', x, LH - 351, { w: 721, flip: f }));
+    withView(PX, 0, 1, () => this.drawPanel(r, t));
+  },
+  drawPanel(r, t) {
     img('catch-BG-boat', -10, 690 + Math.sin(t * 1.3) * 4);
-    img('catch-UI-down-board', 0, LH - 351, { w: LW });
     // fireworks
     if (t < 4) for (let i = 0; i < 3; i++) frame('fireworks', t * 18 - i * 9, 120 + i * 170, 200 + (i % 2) * 70, { s: 1 });
     // girl holding the fish (the grip jaw is at (290,458) in the girl frame)
@@ -2817,7 +2879,7 @@ const catchScene = {
 /* =====================================================================
    MODALS
    ===================================================================== */
-function dim(a = .55) { ctx.save(); ctx.fillStyle = `rgba(2,12,16,${a})`; ctx.fillRect(0, 0, LW, LH); ctx.restore(); }
+function dim(a = .55) { ctx.save(); ctx.fillStyle = `rgba(2,12,16,${a})`; ctx.fillRect(vx(0), vy(0), LW / VT.s, LH / VT.s); ctx.restore(); }
 function popIn(m) { return easeBack(clamp(m.t / .28, 0, 1)); }
 function withPop(m, cx, cy, fn) { const k = popIn(m); ctx.save(); ctx.translate(cx, cy); ctx.scale(k, k); ctx.translate(-cx, -cy); fn(); ctx.restore(); }
 
@@ -3055,12 +3117,7 @@ function renameModal() {
       if (m.opened) m.place();
       if (btn('rnclose', 'button-close', 625, 370, { s: .75, layer: 1 }).click) m.close();
     },
-    place() { // keep the text box over the board, in CSS pixels
-      const r = stage.getBoundingClientRect(), k = r.width / LW;
-      nickEl.style.left = (360 - 200) * k + 'px'; nickEl.style.top = (548 - 34) * k + 'px';
-      nickEl.style.width = 400 * k + 'px'; nickEl.style.height = 68 * k + 'px';
-      nickEl.style.fontSize = Math.max(16, 30 * k) + 'px';
-    },
+    place() { placeField(nickEl, 160, 514, 400, 68); },   // keep the text box over the board
     showInput() {
       nickEl.value = S.name; nickEl.style.display = 'block'; m.place();
       nickEl.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); m.commit(); } if (e.key === 'Escape') m.close(); };
@@ -3681,15 +3738,15 @@ function loop(now) {
   LAYER = 1;
   for (const m of modals) { m.t += dt; }
   FIELD_USE.chatIn = FIELD_USE.fidIn = false;
-  if (modals.length) modals[modals.length - 1].draw();
+  if (modals.length) withView(PX, 0, 1, () => modals[modals.length - 1].draw());   // popups sit in the centre panel
   if (!FIELD_USE.chatIn && chatIn.style.display !== 'none') { chatIn.style.display = 'none'; chatIn.blur(); }
   if (!FIELD_USE.fidIn && fidIn.style.display !== 'none') { fidIn.style.display = 'none'; fidIn.blur(); }
-  if (loading.on) {
+  if (loading.on) withView(PX, 0, 1, () => {
     dim(.6);
     text(loading.msg, 360, 600, { size: 32, align: 'center', weight: 900, color: '#fff' });
     roundRect(160, 650, 400, 18, 9); ctx.fillStyle = 'rgba(255,255,255,.2)'; ctx.fill();
     roundRect(160, 650, 400 * loading.p, 18, 9); ctx.fillStyle = '#8ff1ff'; ctx.fill();
-  }
+  });
   // scene fade
   if (fadeDir) {
     fade = clamp(fade + dt * 3.2 * fadeDir, 0, 1);
