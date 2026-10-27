@@ -53,8 +53,12 @@
 - **男主角美術**：在 `dev/tools/char3d/` 用 three.js 算繪。
   - `final.py` 輸出待機、搏魚、結算和頭像。
   - `walk.py` 輸出走路動畫的 8 格。
-  - 模型是 Microsoft Rocketbox 的 Male_Adult_05，MIT 授權。
+  - 模型是 Microsoft Rocketbox 的 Male_Adult_10（年輕男性），MIT 授權。執行前設定 `MODEL`、`PREFIX` 環境變數即可換人。
 - **水下搏魚**：`pond.drawUnder()`，依 `pond.line` 和 `pond.fish` 的狀態畫出來。
+  - 鏡頭固定，魚在畫面上移動：衝刺時往左、沒力時往右、沒體力後被拉到右上方水面。
+  - 釣線接在魚嘴上。各魚種的嘴部位置和身長量自官方魚圖，存在 `FISH_ART`。
+  - 魚依真實比例繪製：身長每公分 3 px（`PX_PER_CM`），再乘遠近比例。
+  - 水下的魚有來自水面的光線、身上的水紋光影和水色，在 `drawLitFish()`。
 - **聊天、好友、送禮**：
   - 介面在 `chatModal`、`friendsModal`、`playerCard`、`giftModal`。
   - 資料讀寫在 `FB.sendChat`、`FB.requestFriend`、`FB.acceptFriend`、`FB.sendGift`、`FB.claimGift`。

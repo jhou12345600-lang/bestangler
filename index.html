@@ -141,6 +141,10 @@ for (const f of Object.values(FISH)) {
   f.bands = f.bands.map(b => [b[0], b[1], b[2] ?? Math.min(200, b[1] + 5), b[3] ?? Math.min(1000, b[1] * 10), b[4] ?? Math.round(b[1] * (f.epK || 3))]);
   f.min = f.bands[0][0]; f.max = f.bands[f.bands.length - 1][1];
 }
+// Measured from the official fish frames: mouth position in the under-water frames (fish facing left,
+// relative to the drawing anchor) and the body length in frame units, so fish can be drawn true to size.
+const FISH_ART = {"crucian":{"mouth":[-564.0,2.5],"bodyU":1110.0,"bodyF":179.7},"carp":{"mouth":[-588.0,64.5],"bodyU":1098.0,"bodyF":178.1},"tilapia":{"mouth":[-622.0,-22.5],"bodyU":1152.0,"bodyF":160.9},"niloticus":{"mouth":[-382.0,-14.9],"bodyU":708.0,"bodyF":160.9},"tinfoil":{"mouth":[-608.0,28.5],"bodyU":1158.0,"bodyF":178.1},"rainbow":{"mouth":[-568.0,27.5],"bodyU":1062.0,"bodyF":182.8},"whitegrunt":{"mouth":[-582.0,26.5],"bodyU":1142.0,"bodyF":182.8},"culter":{"mouth":[-616.0,-61.5],"bodyU":1160.0,"bodyF":185.9},"corvina":{"mouth":[-642.0,-8.5],"bodyU":1222.0,"bodyF":190.6},"bbass":{"mouth":[-596.0,-41.5],"bodyU":1124.0,"bodyF":184.4},"peacock":{"mouth":[-630.0,-16.5],"bodyU":1180.0,"bodyF":182.8},"grouper":{"mouth":[-630.0,5.5],"bodyU":1184.0,"bodyF":190.6},"giantgrouper":{"mouth":[-606.0,-28.5],"bodyU":1186.0,"bodyF":190.6}};
+const PX_PER_CM = 3;   // the anglers are about 500 px tall (≈165 cm)
 const fishBand = (sp, len) => { const f = FISH[sp]; return f.bands.find(b => len <= b[1] + .99) || f.bands[f.bands.length - 1]; };
 // 魚類尺寸和重量對照表 (kg at each length); in between is a straight line, as the spec explains
 const KG_CM = [10, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 110, 120, 130];
@@ -975,8 +979,13 @@ void main(){
   float gust = .55 + .75*smoothstep(-.35, .75, sn(g*.0016 + vec2(t*.035, -t*.06)));
   vec2 n = waves(g)*.55
          + vec2(sn(g*.031+vec2(t*.17,t*.05)+3.1), sn(g*.029+vec2(-t*.12,-t*.15)+11.7))*.30
-         + vec2(sn(g*.083+vec2(t*.40,-t*.30)+5.), sn(g*.079+vec2(-t*.35,t*.41)+9.))*.13;
-  n *= calm * gust;
+         + vec2(sn(g*.083+vec2(t*.40,-t*.30)+5.), sn(g*.079+vec2(-t*.35,t*.41)+9.))*.13
+         // fine wind chop in two crossing directions (catches the light, keeps the surface alive up close)
+         + vec2(sn(g*.19+vec2(t*.95,-t*.55)+1.7), sn(g*.21+vec2(-t*.75,t*.8)+4.4))*.055
+         + vec2(sn(g*.43+vec2(t*1.7,t*.45)+8.2), sn(g*.41+vec2(-t*1.35,-t*1.1)+2.9))*.022*(1.-d*.6);
+  // sharpen the swell crests a little (trochoidal waves are pointy on top, broad in the troughs)
+  float crest = sn(g*.045 + vec2(t*.6, -t*.25));
+  n *= calm * gust * (1. + .35*max(0., crest));
   float ringLight = 0.;
   for(int i=0;i<16;i++){
     vec4 r = rip[i];
@@ -994,6 +1003,8 @@ void main(){
   }
   vec2 off = n * sc * vec2(7., 9.) / res;
   vec3 col = texture2D(tex, vec2(clamp(mir(wx/720. + off.x), .001, .999), clamp(v.y + off.y, .001, .999))).rgb;
+  // farther water scatters more light: a soft blue-green veil over the bottom
+  col = mix(col, vec3(.13,.33,.34), (1.-d)*(1.-d)*.3);
   // fish and lures, seen through the moving surface
   vec4 f = texture2D(uw, clamp(v + off*1.9, vec2(.001), vec2(.999)));
   col = mix(col, mix(f.rgb, col*vec3(.62,.86,.86), .22 + .2*(1.-d)), f.a);
@@ -1002,10 +1013,14 @@ void main(){
   // live reflection of sky and shore, strongest near the horizon (Fresnel)
   float sy = (2.*hz - (240. + px.y)) / 240.;
   vec3 rc = texture2D(refl, vec2(clamp(mir((px.x + cam*.1)/720. + off.x*2.4), .002, .998), clamp(sy + off.y*5., .01, .99))).rgb;
-  float fres = .04 + .6*pow(1.-d, 3.2);
-  col = mix(col, rc, fres * .55);
-  // sun: broad sheen plus twinkling glitter in the sun path
+  // Fresnel from the real viewing angle: grazing far away, steeper at the dock, tilted by every wave
   vec3 N = normalize(vec3(n*1.6, 1.));
+  float cosT = clamp(mix(.1, .62, pow(d, .7)) - N.y*.55 + abs(N.x)*.1, .02, 1.);
+  float fres = .02 + .98*pow(1. - cosT, 5.);
+  col = mix(col, rc*vec3(.96,1.,1.02), clamp(fres*.85, 0., .82));
+  // wave faces turned away from the light are a touch darker
+  col *= 1. - clamp(N.y*.9, -.12, .12);
+  // sun: broad sheen plus twinkling glitter in the sun path
   float spec = pow(max(0., .55 + .45*dot(N, normalize(vec3(.25,-.75,.6)))), 46.);
   float band = exp(-pow((px.x - sun.x)/(70.+280.*d), 2.)) * (1.-d*.55);
   float glit = smoothstep(.72, .98, sn(g*.19 + vec2(t*.9, -t*.7))) * smoothstep(.2, .9, dot(N, normalize(vec3(.1,-.4,.9))));
@@ -1939,11 +1954,16 @@ const pond = {
     } else {
       // under water (spec): dive to the bottom, sprint left when raging, drift right when tired,
       // and once spent get dragged slowly to the surface at the upper right
+      // F.ux is a screen position here: the camera stays still so the fish visibly crosses the screen
+      const L0 = LW * .12, R0 = LW * .88;
       if (F.U > 0) {
-        F.ux += (F.run > 0 ? -260 * sp.speed : 70) * dt;
-        F.uy = lerp(F.uy, F.run > 0 ? .62 : .8, clamp(dt * 1.2, 0, 1));
-        F.face = F.run > 0 ? -1 : 1;
-      } else { F.ux += 90 * dt; F.uy = Math.max(.05, F.uy - .16 * dt); F.face = 1; }
+        if (F.run > 0) { F.ux = Math.max(L0, F.ux - 300 * sp.speed * dt); F.face = -1; }      // 衝刺：向左快游
+        else { F.ux = Math.min(R0, F.ux + 55 * dt); F.face = 1; }                             // 沒力：向右緩游
+        // 中魚的當下潛到水底，之後貼著水底掙扎
+        F.uy = lerp(F.uy, F.run > 0 ? .7 : .84, clamp(dt * (F.t < 3 ? .8 : 1.4), 0, 1));
+      } else {                                                                                // 被緩慢拖到右上方的水面
+        F.ux = lerp(F.ux, LW * .82, clamp(dt * .5, 0, 1)); F.uy = Math.max(.05, F.uy - .14 * dt); F.face = 1;
+      }
       F.depth = F.uy; F.z = zc; F.x = lerp(F.x, 0, dt * .3);
     }
     F.spd = F.run > 0 ? 2 : .7;
@@ -2045,7 +2065,7 @@ const pond = {
       if (this.st === 'hookset' && this.cine <= 0) {
         const F = this.fish;
         // 只有魚的尺寸大於 40 公分時才會進入水下視角
-        if (F.len > 40) { F.phase = 'under'; F.ux = 0; F.uy = .1; this.view = S.uw === false ? 'surface' : 'under'; }
+        if (F.len > 40) { F.phase = 'under'; F.ux = LW / 2 + 200; F.uy = .06; this.view = S.uw === false ? 'surface' : 'under'; }
         this.setState('fight');
       }
     }
@@ -2140,7 +2160,7 @@ const pond = {
     const F = this.fish;
     if (F && (this.st === 'fight' || this.st === 'hookset') && !(F.jump && F.jump.full)) {
       if (F.golden) { const pt = proj(F.x, F.z); c.save(); c.globalCompositeOperation = 'lighter'; const g = c.createRadialGradient(pt.x, pt.y, 4, pt.x, pt.y, 90 * pt.f); g.addColorStop(0, 'rgba(255,215,80,.55)'); g.addColorStop(1, 'rgba(255,200,40,0)'); c.fillStyle = g; c.fillRect(pt.x - 100, pt.y - 100, 200, 200); c.restore(); }
-      this.fishUW(F.sp, F.x, F.z, F.h, F.len * 1.25, 1, F.anim, F.phase === 'under' ? .7 : F.depth ?? .4);
+      this.fishUW(F.sp, F.x, F.z, F.h, F.len, 1, F.anim, F.phase === 'under' ? .7 : F.depth ?? .4);
     }
     if (this.lure && this.st === 'lure') {
       const L = this.lure; const pt = proj(L.x, L.z);
@@ -2154,6 +2174,14 @@ const pond = {
     c.globalCompositeOperation = 'source-over';
   },
   // One fish under the surface, blending the two nearest of the 16 swim angles so turns are smooth.
+  // seen from above: body length on screen = length (cm) × 3 px × perspective; far fish are drawn a bit larger so they stay
+  // visible, near the dock they are almost true to size
+  fishScale(sp, len, f) { return len * PX_PER_CM * f * lerp(1.9, 1.15, clamp(f, 0, 1)) / ((FISH_ART[sp] || {}).bodyF || 180); },
+  // where the hooked fish's mouth is on screen (surface view)
+  fishHead(F) {
+    const pt = proj(F.x, F.z), s = this.fishScale(F.sp, F.len, pt.f), half = ((FISH_ART[F.sp] || {}).bodyF || 180) * .5 * s;
+    return { x: pt.x + Math.cos(F.h) * half, y: pt.y - Math.sin(F.h) * .55 * half };
+  },
   fishUW(sp, x, z, h, len, alpha, animT, depth = .4) {
     const pt = proj(x, z); if (pt.y < HZ + 4) return;
     const m = A.man.anim['fight-' + sp]; if (!m || !A.tex['anim:fight-' + sp]) return;
@@ -2161,7 +2189,7 @@ const pond = {
     let fk = (Math.atan2(-sy, sx) * 180 / Math.PI - 90) / 22.5; fk = ((fk % 16) + 16) % 16;
     const k0 = Math.floor(fk), w = fk - k0, k1 = (k0 + 1) % 16;
     const per = m.per || 12, fr = Math.floor(animT) % per;
-    const s = (len / 100) * 300 * pt.f / 110 * 1.15 * (1 - depth * .18);
+    const s = this.fishScale(sp, len, pt.f) * (1 - depth * .18);
     const a0 = alpha * (1 - depth * .5);
     const c = uwx;
     if (pt.y > 600) { // its shadow on the lake bed in the shallows
@@ -2238,7 +2266,7 @@ const pond = {
       return { x, y, slack: 0, flying: true };
     }
     if (this.st === 'lure' && this.lure) { const pt = proj(this.lure.x, this.lure.z); return { x: pt.x, y: pt.y, slack: .15 }; }
-    if (this.fish && (this.st === 'fight' || this.st === 'hookset')) { const pt = proj(this.fish.x, this.fish.z); return { x: pt.x, y: pt.y, slack: 1 - clamp(this.line.T * 1.8, 0, 1) }; }
+    if (this.fish && (this.st === 'fight' || this.st === 'hookset')) { const hd = this.fishHead(this.fish); return { x: hd.x, y: hd.y, slack: 1 - clamp(this.line.T * 1.8, 0, 1) }; }
     if (this.st === 'land') return { x: this.landAt ? this.landAt[0] : 360, y: this.landAt ? this.landAt[1] : 760, slack: 0 };
     return null;
   },
@@ -2312,7 +2340,9 @@ const pond = {
     const F = this.fish; if (!F) return;
     const t = this.stT, dx = meX() - 392;
     const n = A.man.anim['under-' + F.sp];
-    const fwid = clamp(F.len * 4.2, 120, 330), s = n ? fwid / n.fw : 1;
+    // true size: body = length × 3 px, smaller while still out in the water (farther from the camera)
+    const art = FISH_ART[F.sp] || {}, persp = lerp(.68, .92, easeInOut(clamp((t - .8) / .7, 0, 1)));
+    const s = n ? F.len * PX_PER_CM * persp / (art.bodyU || n.fw * .88) : 1, fwid = n ? n.fw * s : 120;
     const water0 = [250 + dx, 880];
     const dip = easeInOut(clamp(t / .7, 0, 1)), lift = easeInOut(clamp((t - .8) / .7, 0, 1));
     const hoop = [lerp(330 + dx, water0[0], dip) - lift * 30, lerp(990, water0[1] + 8, dip) - lift * 150];
@@ -2350,12 +2380,36 @@ const pond = {
   },
   // The fight seen under water (official background). Spec path: dive to the bottom, sprint left when raging,
   // drift right when tired, and when spent get dragged slowly to the surface at the upper right.
+  // An under-water fish with light from above, flickering caustics on its back and the green of the water.
+  drawLitFish(sp, fi, x, y, s, flip, rot, alpha, depth) {
+    const m = A.man.anim['under-' + sp]; if (!m) return;
+    const size = Math.ceil(Math.max(m.fw, m.fh) * s * 1.15) + 8;
+    const c = this._litC || (this._litC = document.createElement('canvas')); const k = Math.min(2, K);
+    const W = Math.ceil(size * k);
+    if (c.width < W || c.height < W) { c.width = c.height = Math.max(W, 64); }
+    const g = c.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, c.width, c.height); g.setTransform(k, 0, 0, k, 0, 0);
+    g.imageSmoothingQuality = 'high';
+    frame('under-' + sp, fi, size / 2, size / 2, { ctx: g, s, ax: .5, ay: .55, flip, rot });
+    g.globalCompositeOperation = 'source-atop';
+    // light from the surface: bright back, shaded belly
+    const lg = g.createLinearGradient(0, size * .2, 0, size * .8);
+    lg.addColorStop(0, 'rgba(255,255,225,.22)'); lg.addColorStop(.5, 'rgba(255,255,255,0)'); lg.addColorStop(1, 'rgba(0,25,30,.42)');
+    g.fillStyle = lg; g.fillRect(0, 0, size, size);
+    // moving caustic light on the body
+    g.globalAlpha = .22 * (1 - depth * .6);
+    const ox = (this.t * 22 + x * .3) % 128, oy = (this.t * 11) % 128;
+    g.drawImage(CAUSTIC, -ox, -oy, size + 256, size + 256);
+    // the water colour takes over with depth
+    g.globalAlpha = 1; g.fillStyle = `rgba(18,86,78,${.12 + depth * .22})`; g.fillRect(0, 0, size, size);
+    g.globalCompositeOperation = 'source-over';
+    ctx.save(); ctx.globalAlpha = alpha; ctx.drawImage(c, 0, 0, W, W, x - size / 2, y - size / 2, size, size); ctx.restore();
+  },
   drawUnder() {
     const F = this.fish, dt = DTF, t = this.t;
     const BG = A.man.img['uw-bg'], bgW = BG ? BG.w : 2560;     // 2560 x 1280 logical
-    const U = this.uv || (this.uv = { cam: F ? F.ux : 0, x: LW / 2, y: 300, vy: 0, turn: -1, face: F ? F.face : -1 });
-    if (F) U.cam = lerp(U.cam, F.ux, clamp(dt * 1.6, 0, 1));
-    const camX = U.cam - LW / 2;
+    const U = this.uv || (this.uv = { cam: 0, x: F ? F.ux : LW / 2, y: 160, vy: 0, turn: -1, face: F ? F.face : -1 });
+    if (F) U.cam = lerp(U.cam, (F.ux - LW / 2) * .25, clamp(dt * .8, 0, 1));   // the lake drifts a little with the fish
+    const camX = U.cam;
     // background: the official lake, mirrored side by side so the fish can swim on
     if (BG && A.tex['img:uw-bg']) {
       const sh = ((camX % (bgW * 2)) + bgW * 2) % (bgW * 2);
@@ -2381,7 +2435,7 @@ const pond = {
       const wantW = clamp(200 * (.75 + F.len / 100), 170, 520) * layer;
       const s = wantW / fw;
       let ty = 150 + F.uy * 860;
-      const tx = LW / 2 + (F.ux - U.cam);
+      const tx = F.ux;
       const py = U.y; U.x = lerp(U.x, tx, clamp(dt * 3, 0, 1)); U.y = lerp(U.y, ty, clamp(dt * 1.8, 0, 1)); U.vy = lerp(U.vy, (U.y - py) / Math.max(dt, .001), .1);
       if (U.turn < 0 && F.face !== U.face) U.turn = 0;
       const ret = n ? (n.ret || 0) : 0, swim = n ? (n.swim || 12) : 12;
@@ -2397,9 +2451,11 @@ const pond = {
       const bedY = LH - 150; const sd = clamp((bedY - U.y) / 700, 0, 1);
       ctx.save(); ctx.globalAlpha = .3 * (1 - sd) * (1 - haze); ctx.fillStyle = '#04201a'; ctx.beginPath(); ctx.ellipse(U.x, bedY, wantW * .35 * (1 + sd), 12 * (1 + sd), 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
       if (F.golden) { ctx.save(); ctx.globalCompositeOperation = 'lighter'; const g = ctx.createRadialGradient(U.x, U.y, 10, U.x, U.y, wantW * .7); g.addColorStop(0, 'rgba(255,215,80,.45)'); g.addColorStop(1, 'rgba(255,200,40,0)'); ctx.fillStyle = g; ctx.fillRect(U.x - wantW, U.y - wantW, wantW * 2, wantW * 2); ctx.restore(); }
-      if (n) frame('under-' + F.sp, fi, U.x, U.y + wob, { s, ax: .5, ay: .55, flip, rot: tilt, a: 1 - haze });
+      if (n) this.drawLitFish(F.sp, fi, U.x, U.y + wob, s, flip, tilt, 1 - haze, U.y / LH);
       // the line from the rod (upper right) to the mouth, coloured and trembling with tension
-      const mx = U.x + (flip ? 1 : -1) * (fw * .5 - 60) * s, my = U.y + wob + (400 - fh * .55) * s;
+      const mo = (FISH_ART[F.sp] || {}).mouth || [-(fw * .5 - 60), 400 - fh * .55];
+      const lx = (flip ? -mo[0] : mo[0]) * s, ly = mo[1] * s, cr = Math.cos(tilt), sr = Math.sin(tilt);
+      const mx = U.x + lx * cr - ly * sr, my = U.y + wob + lx * sr + ly * cr;
       const ex = LW / 2 + 240 + Math.sin(t * 1.3) * 6, ey = 118;
       const Tn = this.line.Td, slack = 1 - clamp(this.line.T * 1.8, 0, 1);
       const col = Tn > .85 ? `rgba(255,${90 + 60 * Math.sin(t * 20)},70,.95)` : Tn > .6 ? 'rgba(255,214,120,.9)' : 'rgba(240,255,255,.82)';

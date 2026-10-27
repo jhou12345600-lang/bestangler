@@ -9,7 +9,9 @@ N = 8
 GRIP = {}
 for f in '1234':
     GRIP[f'R_Finger{f}'] = [0, 0, 70]; GRIP[f'R_Finger{f}1'] = [0, 0, 80]; GRIP[f'R_Finger{f}2'] = [0, 0, 60]
-HAT = {'dy': -5.5, 'dz': -0.5, 'tilt': -4, 'scale': 1.17}
+import os
+MODEL = os.environ.get('MODEL', 'm10/Male_Adult_10.fbx'); PREFIX = os.environ.get('PREFIX', 'm024')
+HAT = None   # the young angler goes bare-headed (the old one wore {'dy': -5.5, 'dz': -0.5, 'tilt': -4, 'scale': 1.17})
 def grade(im):
     rgb = im.convert('RGB'); rgb = ImageEnhance.Contrast(rgb).enhance(1.06); rgb = ImageEnhance.Color(rgb).enhance(1.08)
     rgb = rgb.filter(ImageFilter.UnsharpMask(radius=1.2, percent=55, threshold=2)); out = rgb.convert('RGBA'); out.putalpha(im.getchannel('A')); return out
@@ -26,8 +28,8 @@ def pose_at(ph):
 with sync_playwright() as p:
     b = p.chromium.launch(args=ARGS); pg = b.new_page()
     pg.goto('http://localhost:8790/render.html'); pg.wait_for_function('window.ready===true', timeout=60000)
-    pg.evaluate("setup({model:'m05/Male_Adult_05.fbx', prefix:'m009'})")
-    pg.evaluate('h => addHat(h)', HAT)
+    pg.evaluate('o => setup(o)', {'model': MODEL, 'prefix': PREFIX})
+    if HAT: pg.evaluate('h => addHat(h)', HAT)
     W, H = 900, 1400
     frames, hands = [], []
     for i in range(N):
