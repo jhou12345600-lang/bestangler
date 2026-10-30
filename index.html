@@ -1950,7 +1950,7 @@ const pond = {
       const nx = A * Math.sin(F.th), nz = zc + 1.1 * Math.sin(F.th) * Math.cos(F.th);
       const k = clamp(dt * 2.5, 0, 1), sx = lerp(F.x, nx, k), sz = lerp(F.z, nz, k);
       if (Math.hypot(sx - F.x, sz - F.z) > 1e-4) F.h = Math.atan2(sz - F.z, sx - F.x); F.x = sx; F.z = sz;
-      F.depth = F.run > 0 ? .1 : .3;
+      F.depth = F.run > 0 ? .02 : .08;
     } else {
       // under water (spec): dive to the bottom, sprint left when raging, drift right when tired,
       // and once spent get dragged slowly to the surface at the upper right
@@ -1967,15 +1967,32 @@ const pond = {
       F.depth = F.uy; F.z = zc; F.x = lerp(F.x, 0, dt * .3);
     }
     F.spd = F.run > 0 ? 2 : .7;
-    // surface splashes while it fights on top
+    // 水上模式 (small and medium fish, and every fish right after the hook): it fights at the surface,
+    // churning the water, and leaps clear when it rages
     if (F.phase === 'surface' || this.view === 'surface') {
       F.thrash -= dt;
+      const atTop = F.phase === 'surface';
       if (F.thrash <= 0) {
-        F.thrash = F.run > 0 ? rnd(.15, .4) : rnd(.5, 1.2); const pt = proj(F.x, F.z);
+        F.thrash = F.run > 0 ? rnd(.12, .3) : atTop ? rnd(.3, .7) : rnd(.5, 1.2); const pt = proj(F.x, F.z);
         water.ripple(pt.x, pt.y, .3 + .5 * F.size);
-        if (F.run > 0 || Math.random() < .3) { this.addSplash(pt.x, pt.y, pt.f * (.7 + F.size * .7), .6); this.spray(pt.x, pt.y, 6 + F.size * 8, pt.f * 1.6); }
+        if (F.run > 0 || Math.random() < (atTop ? .7 : .3)) { this.addSplash(pt.x, pt.y, pt.f * (.7 + F.size * .7), .6); this.spray(pt.x, pt.y, 6 + F.size * 8, pt.f * 1.6); }
       }
-    }
+      F.jumpCD = (F.jumpCD ?? rnd(2, 4)) - dt;
+      if (atTop && !F.jump && F.U > 0 && F.run > 0 && F.jumpCD <= 0 && (JUMPERS.has(F.sp) || Math.random() < .35)) {
+        const pt0 = proj(F.x, F.z);
+        F.jump = { t: 0, dur: .75 + F.size * .3, x0: pt0.x, y0: pt0.y, dir: Math.cos(F.h) >= 0 ? 1 : -1, dx: (60 + F.size * 90) * pt0.f * 2.2, hgt: (80 + F.size * 110) * pt0.f * 2, full: true };
+        F.jumpCD = rnd(4, 8);
+        this.spray(pt0.x, pt0.y, 14 + F.size * 16, pt0.f * 2.2); water.ripple(pt0.x, pt0.y, 1); audio.splash(.8 + F.size * .5);
+      }
+      if (F.jump) {
+        F.jump.t += dt;
+        if (F.jump.t >= F.jump.dur) {
+          const J = F.jump, ex = J.x0 + J.dir * J.dx, pt1 = proj(F.x, F.z);
+          this.spray(ex, J.y0, 20 + F.size * 20, pt1.f * 2.4); this.addSplash(ex, J.y0, pt1.f * (1 + F.size), 1); water.ripple(ex, J.y0, 1.2); audio.splash(1 + F.size * .6);
+          F.jump = null;
+        }
+      }
+    } else if (F.jump) F.jump = null;
     if (ten > .75) audio.creak(ten);
     if (Pv > 0) audio.reel(Pv / 100);
     // the end of the fight
@@ -2115,6 +2132,7 @@ const pond = {
     if (!wrote) { ctx.save(); ctx.globalAlpha = .75; ctx.drawImage(UW, 0, WATER_Y, LW, LH - WATER_Y); ctx.restore(); }
     // splashes, spray and leaping fish above the surface
     for (const s of this.splashes) frame('splash', s.t * 24, s.x - water.cam * depthF(s.y), s.y + 10 * s.s, { s: s.s * .9, ax: .5, ay: .82, a: s.a * (1 - s.t / 1.3) });
+    this.drawSurfaceFight();
     this.drawJump();
     if (this.drops.length) {
       ctx.save();
@@ -2213,6 +2231,21 @@ const pond = {
     // drips trailing off the body
     if (Math.random() < .5) this.drops.push({ x: x + rnd(-10, 10) * s * 10, y, vx: rnd(-40, 40), vy: rnd(-60, 30), r: rnd(1, 2.4) * pt.f * 1.5, t: 0, floor: J.y0, cam: water.cam });
     frame('under-' + F.sp, F.anim * 1.6 % (n.swim || 23), x, y, { s, rot, flip: J.dir > 0, a, ax: .5, ay: .55 });
+    const mo = (FISH_ART[F.sp] || {}).mouth || [-560, 0], mx = (J.dir > 0 ? -mo[0] : mo[0]) * s, my = mo[1] * s;
+    this.jumpAt = [x + mx * Math.cos(rot) - my * Math.sin(rot), y + mx * Math.sin(rot) + my * Math.cos(rot)];
+  },
+  // churning white water where the fish fights at the surface (水上模式)
+  drawSurfaceFight() {
+    const F = this.fish;
+    if (!F || F.phase !== 'surface' || F.jump || !['fight', 'hookset'].includes(this.st)) return;
+    const pt = proj(F.x, F.z), m = A.man.anim.splash;
+    const k = pt.f * (.55 + F.size * .6) * (F.U > 0 ? 1 : .5), rage = F.run > 0 ? 1 : 0;
+    ctx.save();
+    const g = ctx.createRadialGradient(pt.x, pt.y, 2, pt.x, pt.y, 70 * k + 10);
+    g.addColorStop(0, `rgba(240,255,255,${.45 + rage * .25})`); g.addColorStop(1, 'rgba(240,255,255,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(pt.x, pt.y, 75 * k + 10, 26 * k + 4, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+    if (m) frame('splash', (this.t * 22) % m.n, pt.x + Math.sin(this.t * 9) * 6 * k, pt.y + 8 * k, { s: k * (.75 + rage * .35), ax: .5, ay: .82, a: .5 + rage * .35 });
   },
   floatScreen() {
     const f = this.float; const pt = proj(f.x, f.z);
@@ -2266,7 +2299,10 @@ const pond = {
       return { x, y, slack: 0, flying: true };
     }
     if (this.st === 'lure' && this.lure) { const pt = proj(this.lure.x, this.lure.z); return { x: pt.x, y: pt.y, slack: .15 }; }
-    if (this.fish && (this.st === 'fight' || this.st === 'hookset')) { const hd = this.fishHead(this.fish); return { x: hd.x, y: hd.y, slack: 1 - clamp(this.line.T * 1.8, 0, 1) }; }
+    if (this.fish && (this.st === 'fight' || this.st === 'hookset')) {
+      const hd = this.fish.jump && this.jumpAt ? { x: this.jumpAt[0], y: this.jumpAt[1] } : this.fishHead(this.fish);
+      return { x: hd.x, y: hd.y, slack: 1 - clamp(this.line.T * 1.8, 0, 1) };
+    }
     if (this.st === 'land') return { x: this.landAt ? this.landAt[0] : 360, y: this.landAt ? this.landAt[1] : 760, slack: 0 };
     return null;
   },
