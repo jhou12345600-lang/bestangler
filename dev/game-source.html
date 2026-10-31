@@ -2453,7 +2453,7 @@ const pond = {
   drawNetFish(an, front) {
     const F = this.fish, t = this.stT, r = drawAngFrame(an.key, an.n, meX(), BODY[1], { measure: true });
     const n = A.man.anim['under-' + F.sp], art = FISH_ART[F.sp] || {}, mo = art.mouth || [-560, 0];
-    const L = Math.min(F.len * PX_PER_CM, 230), s = n ? L / (art.bodyU || n.fw * .88) : 1;
+    const L = Math.min(230, Math.max(F.len * PX_PER_CM, 80 + F.len)), s = n ? L / (art.bodyU || n.fw * .88) : 1;   // small fish drawn a bit larger so they read in the net
     let cx, cy, rot, flip = false;
     if (r.netKind === 2) {
       const sw = Math.sin(t * 6) * .16 * clamp(1.2 - t, 0, 1) + Math.sin(t * 2.3) * .04;
