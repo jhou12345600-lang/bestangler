@@ -2475,11 +2475,12 @@ const pond = {
     } else {
       // still in the water at the end of the net pole, thrashing
       const ex = r.net ? r.net[0] : meX() - 170;
-      cx = ex + 30 + Math.sin(t * 10) * 6; cy = r.net ? Math.min(r.net[1] - 18, 1030) : 992; rot = Math.sin(t * 13) * .22; flip = true;
+      cx = ex + 8 + Math.sin(t * 10) * 5; cy = r.net ? Math.min(r.net[1] - 22, 1030) : 992; rot = Math.sin(t * 13) * .22; flip = true;
       if (!front && Math.random() < .6) { water.ripple(cx, cy + 6, .4); if (Math.random() < .35) this.addSplash(cx, cy + 4, .7, .7); }
     }
     // in the water: behind the angler; lifted to the net: in front of her, tail in the bag
-    if (n && front === (r.netKind === 2)) frame('under-' + F.sp, F.anim * 1.4, cx, cy, { s, ax: .5, ay: .55, rot, flip });
+    // frame 0 is the pose the mouth position (FISH_ART) was measured on, so the line meets the mouth exactly
+    if (n && front === (r.netKind === 2)) frame('under-' + F.sp, 0, cx, cy, { s, ax: .5, ay: .55, rot, flip });
     const lx = (flip ? -mo[0] : mo[0]) * s, ly = mo[1] * s, c = Math.cos(rot), sn = Math.sin(rot);
     this.landAt = [cx + lx * c - ly * sn, cy + lx * sn + ly * c];
   },
