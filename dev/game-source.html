@@ -171,6 +171,7 @@ const PONDS = [
     fish: ['whitegrunt', 'corvina', 'grouper', 'giantgrouper'], pin: [1040, 845], btn: 'lobby/button-pond4' },
 ];
 // 裝備-釣竿: cast = 拋投距離 (1 nearest … 5 farthest), line = 釣線長度 (m), maxCm = 魚體尺寸限制. len/kind are for drawing.
+const RODS_BY_CODE = {};
 const RODS = {
   '12feet': { name: '12 尺手竿', code: 'H1', kind: 'pole', cast: 1, line: 36, maxCm: 15, len: 300, price: [0, 's'] },
   '15feet': { name: '15 尺手竿', code: 'H2', kind: 'pole', cast: 2, line: 45, maxCm: 30, len: 340, price: [1000, 's'] },
@@ -181,6 +182,7 @@ const RODS = {
   'ML':     { name: '鱒魚竿',    code: 'ML', kind: 'lure', cast: 5, line: 500, maxCm: 99, len: 320, price: [500, 'g'] },
   'MH':     { name: '重型路亞竿', code: 'MH', kind: 'lure', cast: 5, line: 700, maxCm: 120, len: 340, price: [800, 'g'] },   // 不在官方釣竿表，深水魚假餌需要（估）
 };
+for (const k in RODS) RODS_BY_CODE[RODS[k].code] = k;
 // 裝備-釣線: S = 承受力, life = 生命值 (casts; 0 = 無限), rods → species that will bite
 const G_POLE6 = ['niloticus', 'tinfoil', 'rainbow', 'carp', 'crucian', 'tilapia'];
 const G_BATTLE = ['whitegrunt', 'corvina', 'grouper', 'giantgrouper'], G_LURE = ['culter', 'bbass', 'peacock'];
@@ -611,7 +613,7 @@ const NET = {
     const r2 = v => Math.round(v * 100) / 100;
     const pr = { n: S.name, lv: LV(), p: scene === pond && pond.p ? pond.p.id : 0, st: scene === pond ? pond.st : scene === catchScene ? 'catch' : scene === titleScene ? 'title' : 'lobby', f: null, h: null, T: 0, sp: null, em: this.em, c: S.char === 'boy' ? 'b' : 'g' };
     if (scene === pond) {
-      pr.x = r2(pond.wx); pr.w = pond.walk.dir || 0;
+      pr.x = r2(pond.wx); pr.w = pond.walk.dir || 0; pr.r = pond.rod().code;
       if (pond.float && pond.st === 'wait') pr.f = [r2(pond.float.x), r2(pond.float.z), pond.float.sink > .3 ? 1 : 0];
       if (pond.lure && pond.st === 'lure') pr.f = [r2(pond.lure.x), r2(pond.lure.z), 2];
       if (pond.fish && (pond.st === 'fight' || pond.st === 'hookset')) { pr.h = [r2(pond.fish.x), r2(pond.fish.z)]; pr.T = r2(pond.line.T); pr.sp = pond.fish.sp; }
@@ -1582,6 +1584,31 @@ function drawChar(c, o) {
   img(o.fight ? ci.fight : ci.idle, A0.x - BODY[0], A0.y - BODY[1], { w: A0.w, h: A0.h });
   ctx.restore();
 }
+/* angler animation frames (神釣手 original order): idle 1-32, 揚竿 pull 33-56, 搏魚 fight 57-63,
+   大魚中鉤 big 64-70, 撈魚 get 71-85, 拋竿 throw 86-124. One atlas per angler + rod code (rod drawn in the frame). */
+const ANG_FPS = 24;
+function angKey(c, code) {
+  const ck = charKey(c), fam = ck === 'boy' ? (code[0] === 'H' ? 'H' : code[0] === 'C' ? 'C' : 'L') : code;   // the male set is rendered per rod family
+  const k = 'ang-' + ck + '-' + fam; return A.man.meta.ang && A.man.meta.ang[k] ? k : null;
+}
+function angFrameNo(key, n) {
+  const m = A.man.meta.ang[key];
+  if (!m.nums) m.nums = Object.keys(m.fr).map(Number).sort((a, b) => a - b);
+  let best = m.nums[0];
+  for (const k of m.nums) { if (k <= n) best = k; else break; }
+  return best;
+}
+// draws frame n with the feet centre at (x, feet); returns the rod tip and net points on screen
+function drawAngFrame(key, n, x, feet, o = {}) {
+  const m = A.man.meta.ang[key], f = m.fr[angFrameNo(key, n)], t = A.tex['img:' + key];
+  const s = m.s, k = o.sc ?? 1, out = { tip: [x + f[6] * k, feet + f[7] * k], net: f[10] ? [x + f[8] * k, feet + f[9] * k] : null, netKind: f[10] };
+  if (t && !o.measure) {
+    if (o.dy) { feet += o.dy; out.tip[1] += o.dy; if (out.net) out.net[1] += o.dy; }
+    ctx.save(); if (o.rot) { ctx.translate(x, feet); ctx.rotate(o.rot); ctx.translate(-x, -feet); }
+    ctx.drawImage(t, f[0], f[1], f[2], f[3], x + f[4] * k, feet + f[5] * k, f[2] / s * k, f[3] / s * k); ctx.restore();
+  }
+  return out;
+}
 // portrait in a circle (HUD)
 function drawHead(c, x, y, r) {
   ctx.save(); ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.clip();
@@ -1733,8 +1760,9 @@ const pond = {
     const rod = this.rod();
     const dist = clamp(2.6 + rod.cast * 2.5 + (power - .5) * 2.2 + rnd(-.5, .5), 3.5, 19);
     const lx = rnd(-1.4, 1.4) + (power - .5) * .6;
-    this.cast = { t: 0, dur: .95, to: { x: lx, z: dist } };
-    this.setState('cast'); audio.swish();
+    this.cast = { t: 0, rel: .54, dur: 1.2, to: { x: lx, z: dist } };
+    this.act = { seq: 'throw', t: 0 };
+    this.setState('cast'); setTimeout(() => audio.swish(), 420);
   },
   landCast() {
     const to = this.cast.to;
@@ -1832,6 +1860,7 @@ const pond = {
   },
   retrieve() {
     this.float = null; this.approach = null; this.lure = null; this.banner = null; this.lureStrike = null;
+    this.act = { seq: 'pull', t: 0 };   // 揚竿收線
     audio.swish(); this.setState('idle');
   },
 
@@ -1888,7 +1917,7 @@ const pond = {
     this.line.L = Math.max(4, Math.hypot(pos.x, pos.z) * 1.6); this.line.T = .2; this.line.Td = .2; this.line.brk = 0;
     this.N = 0; this.lastPress = T; this.pressT0 = null;
     this.float = null; this.approach = null; this.lure = null; this.lureStrike = null;
-    this.setState('hookset');
+    this.setState('hookset'); this.act = { seq: 'strike', t: 0 };   // 揚竿 → 搏魚
     this.view = 'surface'; this.cine = 1.6; this.uv = null; this.sand = []; // thrashes on top first; >40 cm fights continue under water
     if (golden) { this.banner = { k: 'gold', t: 0 }; audio.coin(); }
     audio.splash(1);
@@ -2051,6 +2080,7 @@ const pond = {
     // room fee ran out (路亞池 / 戰鬥池): ask once the line is in
     if (this.p.fee.per === 'room' && this.st === 'idle' && !roomValid(this.p) && !modals.length && !this._roomAsked) { this._roomAsked = true; openModal(roomModal(this.p, true)); }
 
+    if (this.act) this.act.t += dt;
     const st = this.st;
     if (st === 'aim') {
       if (this.charging) this.charge = .5 - .5 * Math.cos(this.stT * 3.2);
@@ -2136,6 +2166,7 @@ const pond = {
     // friends beside you, then you
     this.drawFriends();
     this.drawAngler();
+    if (this.st === 'land' && this.fish) { const an = this.angNow(); if (an) this.drawNetFish(an, true); }
     { const mx = meX(), top = this.walk.dir ? 735 : 725;
       if (this.dockPeers().length) this.nameTag(S.name, LV(), mx, top + 22, '#ffd76a', true);
       if (NET.says.me) this.drawSay(NET.says.me, mx, top - 30); else this.drawBubble(NET.bubbles.me, mx, top - 30); }
@@ -2263,7 +2294,7 @@ const pond = {
     let ang, len = rod.len;
     if (walking) ang = -Math.PI * .5 + this.walk.dir * .42 + Math.sin(this.walk.ph * Math.PI * 4) * .03;
     else if (this.st === 'cast') {
-      const t = this.cast.t / this.cast.dur;
+      const t = clamp((this.cast.t - (this.cast.rel || .38) + .36) / .95, 0, 1);
       // swing from over the shoulder (back) to forward
       const back = -Math.PI * .5 + .9, fwd = -Math.PI * .5 - .12;
       ang = t < .35 ? lerp(-Math.PI * .5 + .3, back, easeOut(t / .35)) : lerp(back, fwd, easeOut((t - .35) / .65));
@@ -2279,9 +2310,10 @@ const pond = {
     if (this.st === 'wait' && this.float) { const fs = this.floatScreen(); return { x: fs.x, y: fs.base - 6 * fs.f, slack: .25 }; }
     if (this.st === 'cast') {
       const c = this.cast, t = clamp(c.t / c.dur, 0, 1);
-      if (t < .4) return null;
-      const u = (t - .4) / .6; const to = proj(c.to.x, c.to.z); const g = this.rodGeom();
-      const tip = g.tipStraight;
+      const r0 = (c.rel || .38) / c.dur;
+      if (t < r0) return null;
+      const u = (t - r0) / (1 - r0); const to = proj(c.to.x, c.to.z);
+      const tip = this.angNow() && this.tipPos ? this.tipPos : this.rodGeom().tipStraight;
       const x = lerp(tip[0], to.x, u), y = lerp(tip[1], to.y, u) - Math.sin(u * Math.PI) * 260;
       return { x, y, slack: 0, flying: true };
     }
@@ -2293,7 +2325,31 @@ const pond = {
     if (this.st === 'land') return { x: this.landAt ? this.landAt[0] : 360, y: this.landAt ? this.landAt[1] : 760, slack: 0 };
     return null;
   },
+  // which animation frame the angler shows now (null = no frame set for this angler / rod yet)
+  angNow() {
+    if (this.walk.dir) return null;
+    const key = angKey(S.char, this.rod().code); if (!key) return null;
+    if (!A.tex['img:' + key]) { ensure(['img:' + key]); return null; }
+    const ACT = { pull: [33, 56, 24], strike: [33, 41, 30], throw: [86, 124, 24], big: [64, 70, 24] };
+    if (this.st === 'land') return { key, n: Math.min(77, 71 + Math.floor(this.stT * 9)) };   // hold the net out beside her
+    const a = this.act;
+    if (a) {
+      const q = ACT[a.seq], n = q[0] + Math.floor(a.t * q[2]);
+      if (n <= q[1]) return { key, n };
+      this.act = null;
+    }
+    if (this.st === 'hookset' || this.st === 'fight') return { key, n: 57 + Math.floor(this.t * 14) % 7 };
+    return { key, n: 1 + Math.floor(this.t * 12) % 32 };
+  },
   drawAngler() {
+    const an = this.angNow();
+    if (an) {
+      const tgt = this.lineTarget();
+      const r = drawAngFrame(an.key, an.n, meX(), BODY[1]);
+      this.tipPos = r.tip;
+      if (tgt) this.drawLine(r.tip, tgt);
+      return;
+    }
     const fightPose = FIGHT_ST.includes(this.st);
     const g = this.rodGeom();
     const tgt = this.lineTarget();
@@ -2361,6 +2417,8 @@ const pond = {
   // 撈魚: the angler scoops the tired fish out with a landing net
   drawLandingFish() {
     const F = this.fish; if (!F) return;
+    const an = this.angNow();
+    if (an) return this.drawNetFish(an, false);
     const t = this.stT, dx = meX() - 392;
     const n = A.man.anim['under-' + F.sp];
     // true size: body = length × 3 px, smaller while still out in the water (farther from the camera)
@@ -2390,6 +2448,27 @@ const pond = {
     for (let i = -10; i <= 10; i++) { ctx.beginPath(); ctx.moveTo(hoop[0] + i * 9, hoop[1] - 5); ctx.lineTo(hoop[0] + i * 9 + 60, hoop[1] + 120); ctx.stroke(); ctx.beginPath(); ctx.moveTo(hoop[0] + i * 9, hoop[1] - 5); ctx.lineTo(hoop[0] + i * 9 - 60, hoop[1] + 120); ctx.stroke(); }
     ctx.restore();
     ctx.save(); ctx.strokeStyle = '#c9ced4'; ctx.lineWidth = 4; ctx.beginPath(); ctx.ellipse(hoop[0], hoop[1], 66, 22, 0, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
+  },
+  // 撈魚 with the angler's own net (frames 71-80): the fish is led to the net, then hangs head-up in the bag
+  drawNetFish(an, front) {
+    const F = this.fish, t = this.stT, r = drawAngFrame(an.key, an.n, meX(), BODY[1], { measure: true });
+    const n = A.man.anim['under-' + F.sp], art = FISH_ART[F.sp] || {}, mo = art.mouth || [-560, 0];
+    const L = Math.min(F.len * PX_PER_CM, 230), s = n ? L / (art.bodyU || n.fw * .88) : 1;
+    let cx, cy, rot, flip = false;
+    if (r.netKind === 2) {
+      const sw = Math.sin(t * 6) * .16 * clamp(1.2 - t, 0, 1) + Math.sin(t * 2.3) * .04;
+      rot = Math.PI / 2 + sw; cx = Math.min(r.net[0] - 4, meX() - 96 - L * .12); cy = r.net[1] - L * .5 + 8;
+      if (!front && t < 1 && Math.random() < .5) this.drops.push({ x: cx + rnd(-20, 20), y: cy + L * .3, vx: rnd(-20, 20), vy: rnd(0, 60), r: rnd(1, 2.5), t: 0, floor: BODY[1] - 120, cam: water.cam });
+    } else {
+      // still in the water at the end of the net pole, thrashing
+      const ex = r.net ? r.net[0] : meX() - 170;
+      cx = ex + 30 + Math.sin(t * 10) * 6; cy = r.net ? Math.min(r.net[1] - 18, 1030) : 992; rot = Math.sin(t * 13) * .22; flip = true;
+      if (!front && Math.random() < .6) { water.ripple(cx, cy + 6, .4); if (Math.random() < .35) this.addSplash(cx, cy + 4, .7, .7); }
+    }
+    // in the water: behind the angler; lifted to the net: in front of her, tail in the bag
+    if (n && front === (r.netKind === 2)) frame('under-' + F.sp, F.anim * 1.4, cx, cy, { s, ax: .5, ay: .55, rot, flip });
+    const lx = (flip ? -mo[0] : mo[0]) * s, ly = mo[1] * s, c = Math.cos(rot), sn = Math.sin(rot);
+    this.landAt = [cx + lx * c - ly * sn, cy + lx * sn + ly * c];
   },
   drawVictory() {
     const t = this.stT;
@@ -2529,6 +2608,7 @@ const pond = {
       water.ripple(pt.x, pt.y, .5); if (Math.random() < .3) this.addSplash(pt.x, pt.y, pt.f, .5);
     }
   },
+  defaultCode() { const k = this.p.mode === 'lure' ? 'UL' : this.p.rods.includes('cast') ? 'C300' : 'H1'; return k; },
   drawFriends() {
     const sc = .86, list = this.dockPeers().sort((a, b) => Math.abs(b.x - this.wx) - Math.abs(a.x - this.wx));
     this.tags = [];
@@ -2540,6 +2620,28 @@ const pond = {
       const walk = +pr.w && pr.st === 'idle' ? { dir: +pr.w > 0 ? 1 : -1, ph: this.peerPh[pe.peer] || 0 } : null;
       const c = pr.c === 'b' ? 'boy' : 'girl';
       if (c === 'boy' && !A.tex['img:boy-idle']) ensure(charAssets('boy'));
+      // their animation frames (rod code from presence; older clients: the pond's first rod)
+      const ak = !walk && angKey(c, typeof pr.r === 'string' && RODS_BY_CODE[pr.r] ? pr.r : this.defaultCode());
+      if (ak && !A.tex['img:' + ak]) ensure(['img:' + ak]);
+      if (ak && A.tex['img:' + ak]) {
+        const ph = this.t * 12 + x * 7;
+        const n = pr.st === 'hookset' || pr.st === 'fight' ? 57 + Math.floor(ph) % 7 : pr.st === 'land' ? 77 : pr.st === 'cast' ? 99 : 1 + Math.floor(ph) % 32;
+        const fr = drawAngFrame(ak, n, cx, feet, { sc });
+        let tg = null;
+        if (Array.isArray(pr.f)) { const pt = proj((+pr.f[0] || 0) + m, +pr.f[1] || 6); tg = [pt.x, pt.y - 4 * pt.f, pt.f, pr.f[2]]; }
+        if (Array.isArray(pr.h)) { const pt = proj((+pr.h[0] || 0) + m, +pr.h[1] || 6); tg = [pt.x, pt.y, pt.f, 3]; }
+        if (tg && tg[3] !== 3 && tg[3] !== 2) {
+          const spr = 'fishing/float-ball'; const sz = uiSize(spr); const s2 = tg[2] * 1.5, sink = tg[3] === 1 ? .7 : 0;
+          ctx.save(); ctx.beginPath(); ctx.rect(tg[0] - 30, tg[1] - 200, 60, 204); ctx.clip();
+          ui(spr, tg[0], tg[1] + 4 - sz.h * s2 * (.62 - sink * .6) + Math.sin(this.t * 2.2 + x) * 1.5 * tg[2], { s: s2, ax: .5, ay: 0 }); ctx.restore();
+        }
+        if (tg) this.drawLine(fr.tip, { x: tg[0], y: tg[1], slack: tg[3] === 3 ? 1 - clamp((+pr.T || .4) * 1.8, 0, 1) : .25 });
+        const ty = feet - 500 * sc - 6, friend = !!NET.friends[pe.peer];
+        const r = this.nameTag(NET.nameOf(pe), pr.lv, cx, ty, Array.isArray(pr.h) ? '#ffd76a' : friend ? '#9dffb0' : '#e9fffb');
+        this.tags.push({ r, pe });
+        if (NET.says[pe.peer]) this.drawSay(NET.says[pe.peer], cx, ty - 50); else this.drawBubble(NET.bubbles[pe.peer], cx, ty - 46);
+        continue;
+      }
       const hand = charHand(c, { x: cx, feet, sc, fight: fightPose, walk });
       let tgt = null, tension = .05;
       if (Array.isArray(pr.f)) { const pt = proj((+pr.f[0] || 0) + m, +pr.f[1] || 6); tgt = [pt.x, pt.y - 4 * pt.f, pt.f, pr.f[2]]; }
@@ -2989,8 +3091,27 @@ function pondBoard(p) {
         ui('lobby/pond-board/board', 360, 640, { ax: .5, ay: .5, s: 1 });
         if (p.id === 1) ui('lobby/pond-board/title1', 360, 358, { ax: .5, ay: .5 });
         else text(p.name, 360, 358, { size: 44, align: 'center', weight: 900, color: '#ffe36a', stroke: '#2f4d0c', sw: 8 });
-        let y = 440;
-        p.rules.forEach((r, i) => { y = wrapText(`${i + 1}. ${r}`, 120, y, 470, 40, { size: 25, color: '#ffeccc', weight: 700 }); });
+        // rules sit inside the board's inner panel (x 134-584, y 452-772), numbers hang left, wrapped lines align
+        const BX = 156, BW = 410, BY = 452, BH = 320;
+        const lay = sz => {
+          ctx.font = `700 ${sz}px "Noto Sans TC",sans-serif`;
+          const numW = ctx.measureText('5. ').width, out = [];
+          p.rules.forEach((r, i) => {
+            let line = '', first = true;
+            for (const ch of r.match(/[A-Za-z0-9.,]+\s?|./g)) { if (ctx.measureText((line + ch).trimEnd()).width > BW - numW && line) { out.push([first ? `${i + 1}.` : '', line.trimEnd()]); first = false; line = ch.trimStart(); } else line += ch; }
+            if (line) out.push([first ? `${i + 1}.` : '', line]);
+          });
+          return { out, numW };
+        };
+        let sz = 25, L = lay(sz);
+        while (sz > 17 && L.out.length * sz * 1.5 > BH - 30) { sz--; L = lay(sz); }
+        const lh = Math.min(sz * 1.6, (BH - 30) / L.out.length);
+        let y = BY + (BH - L.out.length * lh) / 2 + lh / 2;
+        for (const [n, l] of L.out) {
+          if (n) text(n, BX, y, { size: sz, color: '#ffeccc', weight: 700, baseline: 'middle' });
+          text(l, BX + L.numW, y, { size: sz, color: '#ffeccc', weight: 700, baseline: 'middle' });
+          y += lh;
+        }
         const lvKey = 'lobby/pond-board/level' + p.lv;
         ui(lvKey, 176, 866, { ax: .5, ay: .5 });
         const locked = LV() < p.lv;
@@ -3007,8 +3128,8 @@ async function enterPond(p, paid) {
   if (LV() < p.lv) { openModal(messageModal(`需要 Lv.${p.lv} 才能進入${p.name}。`, p.name)); return; }
   if (p.fee.per === 'room' && !paid && !roomValid(p)) { openModal(roomModal(p, false)); return; }
   loading.show('前往' + p.name + '…');
-  const sp = p.fish;
-  await ensureProgress([`img:${p.bgKey}-bg-water`, `img:${p.bgKey}-bg-top`, `img:${p.bgKey}-wood-grass`, ...charAssets(S.char), 'img:girl-idle', 'img:girl-fight', 'img:girl-shadow', 'anim:splash',
+  const sp = p.fish, ak = RODS[S.equip.rod] && angKey(S.char, RODS[S.equip.rod].code);
+  await ensureProgress([...(ak ? ['img:' + ak] : []), `img:${p.bgKey}-bg-water`, `img:${p.bgKey}-bg-top`, `img:${p.bgKey}-wood-grass`, ...charAssets(S.char), 'img:girl-idle', 'img:girl-fight', 'img:girl-shadow', 'anim:splash',
     ...(p.id === 1 ? ['img:pond-cloud1', 'img:pond-cloud2', 'img:pond-cloud3'] : [`img:${p.bgKey}-fog`]), ...sp.map(k => 'anim:fight-' + k)], v => loading.p = v);
   loading.hide();
   go(pond, p);

@@ -300,3 +300,6 @@ anim("catchgirl", fr, 1.5, q=88, extra={"bx": box[0], "by": box[1]})
 json.dump(man, open(OUT + "assets.json", "w"), ensure_ascii=False, separators=(",", ":"))
 tot = sum(os.path.getsize(os.path.join(OUT + "img", f)) for f in os.listdir(OUT + "img"))
 print("files", len(os.listdir(OUT + "img")), "MB", round(tot / 1e6, 1), "ui atlases", len(man["atlas"]), "ui pieces", len(man["ui"]))
+
+# angler animation atlases (original girl frames per rod + rendered male frames) merge into assets.json
+os.system(f'python3 -I {os.path.dirname(os.path.abspath(__file__))}/angler_anim.py {OUT}')

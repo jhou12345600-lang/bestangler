@@ -42,9 +42,13 @@
 ## 素材建置流程（`dev/tools/`）
 
 1. `esrgan.py`：Real-ESRGAN x2 放大，需要 `RealESRGAN_x2plus.pth` 權重與 PyTorch。
-2. `roto.py`、`girlfix.py`：從官方截圖去背，製作碼頭上的角色姿勢。官方素材包缺少 `girl-animation.txt` 列出的 124 格角色動畫。
+2. `roto.py`、`girlfix.py`：從官方截圖去背，製作碼頭上的角色姿勢（現在只用在走路和大廳）。
 3. `build_assets.py 原始images資料夾 工作資料夾 輸出資料夾`：輸出 WebP 圖集與 `assets.json`。
 4. `make_site.py`：把 `dev/game-source.html` 包成完整網站。
+5. `angler_anim.py 輸出資料夾`：釣魚動作圖集（`build_assets.py` 最後會自動執行）。
+   - 女角：官方 `fishing/girl/<竿號>/` 的 124 格動畫，每種竿一張圖集 `img/ang-girl-<竿號>.webp`，竿子畫在圖裡。程式自動找出竿尖和撈網位置。
+   - 男角：`char3d/anim_boy.py render H|C|L` 用 three.js 算繪同樣格數（手竿、投竿、路亞竿三種），竿子和撈網是 3D 物件，輸出到 `char3d/out/anim/`。
+   - 格數對照（`girl-animation.txt`）：待機 1-32、揚竿 33-56、搏魚 57-63、大魚中鉤 64-70、撈魚 71-85、拋竿 86-124。
 
 ## 這一版新增的程式重點
 
@@ -54,6 +58,11 @@
   - `final.py` 輸出待機、搏魚、結算和頭像。
   - `walk.py` 輸出走路動畫的 8 格。
   - 模型是 Microsoft Rocketbox 的 Male_Adult_10（年輕男性），MIT 授權。執行前設定 `MODEL`、`PREFIX` 環境變數即可換人。
+- **釣魚動作**：`pond.angNow()` 依狀態決定播放哪一格，`drawAngFrame()` 畫出來並回傳竿尖位置（魚線從這裡接出）。
+  - 拋竿：`startCast` 播 86-124，第 99 格（竿子朝前）放出浮標。
+  - 揚竿：中魚播 33-41 接搏魚 57-63 循環；沒鉤到或收竿播完整 33-56。
+  - 撈魚：`pond.land()` 後播 71-77 並停在 77（撈網在身旁），`drawNetFish()` 讓魚掛在網口、嘴接魚線。
+  - 同池釣友也用同一套圖（`presence.r` 是對方的竿號）。走路時沿用舊的待機圖。
 - **水下搏魚**：`pond.drawUnder()`，依 `pond.line` 和 `pond.fish` 的狀態畫出來。
   - 鏡頭固定，魚在畫面上移動：衝刺時往左、沒力時往右、沒體力後被拉到右上方水面。
   - 釣線接在魚嘴上。各魚種的嘴部位置和身長量自官方魚圖，存在 `FISH_ART`。
