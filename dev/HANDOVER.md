@@ -146,7 +146,19 @@
 - **男主角**：目前是暫代的 3D 算繪美術，可以換成官方畫風的男主角。換的時候保持同樣的錨點，也就是腳底在畫面 y=1266、身體中心在 x=392。
 - **聊天管理**：目前只有用戶端的不雅字過濾和個人封鎖，沒有檢舉和後台。正式營運建議加 Cloud Functions 做審核，並定期清除舊訊息。
 
-- **角色動畫**：補上碼頭角色 124 格動畫（待機、拋竿、拉扯、收魚），目前只有兩個靜態姿勢。
+- **角色動畫**：釣魚時已用 124 格動畫（待機、拋竿、揚竿、搏魚、撈魚）。走路還沒有動畫，目前用待機圖上下起伏表現。
 - **防作弊**：若要正式營運，建議加遊戲伺服器（例如 Cloud Functions），由伺服器結算漁獲與排行榜。
 - **找回密碼**：若需要，可改成用信箱登入，再搭配 Firebase 的重設密碼信。
-- **Firebase 專案**：可以換成官方自己的專案，改 `firebase-config.js` 即可。
+- **Firebase 專案**：可以換成官方自己的專案，改 `firebase-config.js` 即可。搬移帳號和資料的步驟見下方「伺服器交接」。
+
+## 伺服器交接
+
+遊戲沒有自己的後端主機：網站是 GitHub Pages 上的靜態檔案，帳號和資料在 Firebase 專案 `bestangler-83bed`。
+
+- **直接接手（帳號存檔不用搬）**：在 Firebase 專案設定 > 使用者和權限把官方 Google 帳號加為擁有者，再升級 Blaze 方案改綁官方帳單。GitHub 可加官方為協作者（網址不變），或轉移倉庫（網址會變成官方帳號底下）。
+- **搬到官方自己的專案**：
+  1. 新專案開啟「電子郵件/密碼」和「匿名」登入，建立 Realtime Database，發布 `database.rules.json`。
+  2. `firebase auth:export` 匯出帳號，再用舊專案的密碼雜湊參數執行 `firebase auth:import`（SCRYPT），uid 和密碼都保留。
+  3. Realtime Database 匯出 JSON 再匯入新專案。
+  4. 換掉 `firebase-config.js`，把 `index.html`、`firebase-config.js`、`assets.json`、`img/`、`lib/` 放到官方主機。
+  5. 舊網址放轉址頁。
