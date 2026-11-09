@@ -1137,11 +1137,14 @@ function hudTop(o = {}) {
   drawHead(S.char, 4 + 74 * .9, y0 + 82 * .9, 66 * .9);
   // level arc + ball
   const lv = LV(), e0 = epForLv(lv), e1 = epForLv(lv + 1), prog = clamp((S.ep - e0) / Math.max(1, e1 - e0), 0, 1);
-  ui('top-UI/girl-head-LV', 0, y0 + 84, { s: .9 });
-  ctx.save(); ctx.beginPath(); ctx.moveTo(24, y0 + 160); ctx.arc(24, y0 + 160, 160, -Math.PI * .5 * prog, 0); ctx.closePath();
-  ctx.beginPath(); ctx.rect(0, y0 + 84, 200 * prog + 30, 90); ctx.clip();
-  ui('top-UI/girl-head-LV-blood', 26, y0 + 84 + 2, { s: .9 }); ctx.restore();
-  text(String(lv), 4 + 23, y0 + 84 + 26, { size: 24, align: 'center', weight: 900, stroke: '#4a0a0a', color: '#ffe8a8' });
+  // the LV track is a quarter ring centred on the portrait circle (measured from the original art: ring centre
+  // (82, 81.5) in the panel, track centre (94, 8.5) in the LV piece, fill offset (46, 0) on the track)
+  const hs = .9, ccx = 4 + 82 * hs, ccy = y0 + 81.5 * hs, lvx = ccx - 94 * hs, lvy = ccy - 8.5 * hs;
+  ui('top-UI/girl-head-LV', lvx, lvy, { s: hs });
+  const a0 = Math.PI * 120 / 180, a1 = a0 - prog * Math.PI * 126 / 180;   // fills from the ball end up to the top
+  ctx.save(); ctx.beginPath(); ctx.moveTo(ccx, ccy); ctx.arc(ccx, ccy, 140, a1, a0); ctx.closePath(); ctx.clip();
+  ui('top-UI/girl-head-LV-blood', lvx + 46 * hs, lvy, { s: hs }); ctx.restore();
+  text(String(lv), lvx + 34.5 * hs, lvy + 52.5 * hs, { size: 24, align: 'center', weight: 900, stroke: '#4a0a0a', color: '#ffe8a8' });
   text(S.name, 160, y0 + 32, { size: 26, weight: 900, stroke: '#0b2f4a', color: '#fff' });
   ctx.font = '900 26px "Noto Sans TC",sans-serif'; const nw = ctx.measureText(S.name).width;
   drawPencil(166 + nw, y0 + 32);
@@ -1155,7 +1158,8 @@ function hudTop(o = {}) {
   text(fmt(S.silver), px + 70, y0 + 66 + 32, { size: 24, weight: 900, color: '#fff', stroke: '#0a4a6a' });
   ui('top-UI/EP-panel', px - 4, y0 + 130, { s: .62 });
   text(fmt(S.ep) + ' EP', px + 50, y0 + 130 + 25, { size: 19, weight: 900, color: '#fff', stroke: '#0a4a6a' });
-  if (btn('pay', 'top-UI/button-payment', LW - 52, y0 + 64, { s: .8, layer: o.layer ?? 0 }).click) openModal(payModal());
+  // 儲值「+」緊接在金幣欄右邊
+  if (btn('pay', 'top-UI/button-payment', px + 255 * .78 + 30, y0 + 2 + 31, { s: .72, layer: o.layer ?? 0 }).click) openModal(payModal());
   // sound toggle
   const sr = { x: LW - 84, y: y0 + 116, w: 70, h: 54 };
   const sh = hit('snd', sr, o.layer ?? 0);
@@ -1938,22 +1942,24 @@ const pond = {
     const F = this.fish, sp = FISH[F.sp], rod = this.rod(), S_ = LINES[S.equip.line].S;
     F.t += dt;
     F.F = this.fishForce(F, dt);
-    const Pv = Math.max(0, this.N) * 10;                         // 釣力值 P (0-100)
+    const Pv = Math.max(0, this.N) * 10;                         // 釣力值 P (0-100)：用掉釣線承受力的百分比
     const Feff = this.N < 0 ? F.F * (1 + this.N * .12) : F.F;   // letting line out eases the pull
     this.P = Pv;
-    // 斷線：P + F > S
-    const ten = (Pv + Feff) / (S_ * BREAK_MARGIN);   // 1.0 = about to snap
+    // 斷線：P + F > S，P 依釣線換算，所以斷線風險看的是魚力和釣線的比例：
+    // 小魚配一般線幾乎不會斷，大魚配細線收太緊才會斷
+    const Pline = Pv / 100 * S_ * .8;   // 收到頂 = 用到這條線 80% 的承受力
+    const ten = (Pline + Feff) / (S_ * BREAK_MARGIN);   // 1.0 = about to snap
     this.line.T = ten; this.line.Td = lerp(this.line.Td, ten, clamp(dt * 6, 0, 1));
-    if (Pv + Feff > S_ * BREAK_MARGIN) { this.line.brk += dt; if (this.line.brk > BREAK_GRACE) return this.lose('broken'); } else this.line.brk = Math.max(0, this.line.brk - dt);
+    if (Pline + Feff > S_ * BREAK_MARGIN) { this.line.brk += dt; if (this.line.brk > BREAK_GRACE) return this.lose('broken'); } else this.line.brk = Math.max(0, this.line.brk - dt);
     if (F.weakAt !== null && F.t > F.weakAt) return this.lose('broken');
     // 體力值：官方公式 搏魚秒數 = 體力值 / 10 → 收線時（P > 0）每秒扣 10，放線時不扣
-    F.U = Math.max(0, F.U - (Pv > 0 ? FIGHT_DRAIN : 0) * dt);
+    F.U = Math.max(0, F.U - (this.N >= 0 ? FIGHT_DRAIN : 0) * dt);
     F.life = F.U / F.U0;
     // line length: the fish takes line, reeling takes it back
     if (F.U > 0) {
       this.line.L = Math.max(3, this.line.L + (F.F * .04 - Pv * .045 + (this.N < 0 ? -this.N * .3 : 0)) * dt);
       if (this.line.L > rod.line) return this.lose('runaway');          // 線全部被拉完
-    } else this.line.L = Math.max(0, this.line.L - (1.6 + Pv * .03) * dt);  // exhausted: bring it in
+    } else this.line.L = Math.max(0, this.line.L - Math.max(3, this.line.L * 1.3) * dt);  // exhausted: brought in within ~2 s
     // 魚脫逃：大約 7 秒沒按收線
     if (F.U > 0 && T - this.lastPress > 7) return this.lose('runaway');
     // movement
@@ -2458,7 +2464,8 @@ const pond = {
     let cx, cy, rot, flip = false;
     if (r.netKind === 2) {
       const sw = Math.sin(t * 6) * .16 * clamp(1.2 - t, 0, 1) + Math.sin(t * 2.3) * .04;
-      rot = Math.PI / 2 + sw; cx = Math.min(r.net[0] - 4, meX() - 96 - L * .12); cy = r.net[1] - L * .5 + 8;
+      // head down into the bag, tail up (官方：拉魚回來時魚頭朝下)
+      rot = -Math.PI / 2 + sw; cx = Math.min(r.net[0] - 4, meX() - 96 - L * .12); cy = r.net[1] - L * .5 + L * .32;
       if (!front && t < 1 && Math.random() < .5) this.drops.push({ x: cx + rnd(-20, 20), y: cy + L * .3, vx: rnd(-20, 20), vy: rnd(0, 60), r: rnd(1, 2.5), t: 0, floor: BODY[1] - 120, cam: water.cam });
     } else {
       // still in the water at the end of the net pole, thrashing
@@ -2468,7 +2475,7 @@ const pond = {
     }
     // in the water: behind the angler; lifted to the net: in front of her, tail in the bag
     // frame 0 is the pose the mouth position (FISH_ART) was measured on, so the line meets the mouth exactly
-    if (n && front === (r.netKind === 2)) frame('under-' + F.sp, 0, cx, cy, { s, ax: .5, ay: .55, rot, flip });
+    if (n && !front) frame('under-' + F.sp, 0, cx, cy, { s, ax: .5, ay: .55, rot, flip });   // behind the angler: the net covers the head
     const lx = (flip ? -mo[0] : mo[0]) * s, ly = mo[1] * s, c = Math.cos(rot), sn = Math.sin(rot);
     this.landAt = [cx + lx * c - ly * sn, cy + lx * sn + ly * c];
   },
