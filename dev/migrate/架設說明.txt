@@ -1,0 +1,52 @@
+神釣手 網站架設說明
+====================
+
+這個資料夾就是完整的遊戲網站，全部是靜態檔案，不需要後端程式或資料庫主機。
+帳號、存檔、排行榜、聊天都放在 Firebase。
+
+一、上傳
+  把整個資料夾的內容上傳到網站主機的一個目錄，例如網站根目錄或 /bestangler/。
+  放在子目錄也可以，程式用的都是相對路徑。
+  要上傳的內容：
+    index.html          遊戲本體
+    firebase-config.js  Firebase 連線設定（見第二步）
+    assets.json         素材清單
+    img/                美術素材（121 個 webp 檔，約 58 MB）
+    lib/                Firebase 程式庫
+    .htaccess           Apache 主機的快取設定，其他主機可不放
+
+二、填 Firebase 設定
+  用文字編輯器打開 firebase-config.js，把「請填入」的地方換成官方新 Firebase 專案的值。
+  位置：Firebase 主控台 > 專案設定 > 一般 > 你的應用程式 > SDK 設定和配置。
+  沒填之前遊戲仍可開啟，但會是離線單機模式。
+
+三、主機設定（長期營運建議）
+  1. 一定要用 HTTPS。
+  2. 副檔名類型：.webp 要回傳 image/webp，.json 要回傳 application/json。多數主機預設就對。
+  3. 快取：
+     - index.html、firebase-config.js、assets.json 設成不快取（no-cache），更新後玩家馬上拿到新版。
+     - img/ 和 lib/ 可以快取久一點（例如 7 天）。
+     - 更新美術素材時，assets.json 會一起換，新的圖會重新下載。
+  4. 建議開 gzip 或 brotli 壓縮（html、js、json）。webp 已經壓縮過，不用再壓。
+  5. 素材是用到才下載：第一次開遊戲到進入一個釣池大約 6 MB，每多去一個釣池再多幾 MB。
+     之後瀏覽器會快取，主機頻寬依新玩家人數估算。
+  6. 若流量大，可以把整個資料夾放到 CDN（例如 Cloudflare、Firebase Hosting、Google Cloud Storage）。
+
+   nginx 範例：
+     location / {
+       try_files $uri $uri/ =404;
+     }
+     location ~* ^/(index\.html|firebase-config\.js|assets\.json)$ { add_header Cache-Control "no-cache"; }
+     location ~* \.(webp|js)$ { add_header Cache-Control "public, max-age=604800"; }
+     gzip on; gzip_types application/javascript application/json text/html;
+
+四、Firebase 那邊要記得
+  1. Authentication 開啟「電子郵件/密碼」和「匿名」登入。
+  2. Realtime Database 的安全規則換成 GitHub 倉庫根目錄的 database.rules.json。
+  3. 若在 Google Cloud 對 API 金鑰設了網域限制，要把官方網站的網域加進去。
+  4. 正式營運請升級 Blaze 方案（免費方案同時最多 100 個連線），並開啟每日備份。
+
+五、之後更新遊戲
+  程式原始碼在 GitHub 倉庫的 dev/game-source.html，修改後用 dev/tools/make_site.py 打包成 index.html，
+  再把新的 index.html（有改素材時連同 assets.json 和 img/）上傳覆蓋即可。
+  firebase-config.js 不用每次覆蓋。

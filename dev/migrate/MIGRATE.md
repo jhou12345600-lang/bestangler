@@ -7,7 +7,7 @@
    - 建立 Realtime Database（建議 asia-southeast1）。
    - 新增一個網頁應用程式，取得設定值。
 2. 發布規則：`dev/migrate/migrate.sh rules 新專案ID`
-3. 把倉庫根目錄的 `index.html`、`assets.json`、`img/`、`lib/` 放到官方主機，`firebase-config.js` 換成新專案的設定值。
+3. 執行 `dev/migrate/make_package.sh` 打包網站，上傳到官方主機，再把 `firebase-config.js` 填上新專案的設定值。主機設定見 `架設說明.txt`。
 4. 用新網址註冊一個測試帳號，確認能玩、能存檔。測完到新專案把這個測試帳號和它的資料刪掉。
 5. 至少提前一天在遊戲內公告搬遷時間，並提醒「訪客」先註冊帳號。訪客的登入狀態存在瀏覽器裡，換網址後無法帶過去。
 
