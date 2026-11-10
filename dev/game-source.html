@@ -3415,6 +3415,11 @@ function renameModal() {
 }
 function plainBoard() { // the catch board without its painted totals plates
   ui('fishing/POP-catch/bg', 360, 640, { ax: .5, ay: .5 });
+  // paint out the baked-in 「今日漁獲」 on the title plank (rows sampled from the plank beside the letters)
+  ctx.save(); const g = ctx.createLinearGradient(0, 165, 0, 226);
+  g.addColorStop(0, 'rgb(137,134,37)'); g.addColorStop(.3, 'rgb(137,134,37)'); g.addColorStop(.36, 'rgb(101,104,29)');
+  g.addColorStop(.7, 'rgb(98,100,29)'); g.addColorStop(.86, 'rgb(90,91,28)'); g.addColorStop(1, 'rgb(84,82,26)');
+  roundRect(262, 165, 226, 61, 10); ctx.fillStyle = g; ctx.fill(); ctx.restore();
   ctx.save(); roundRect(84, 878, 552, 172, 18); ctx.fillStyle = '#bc6320'; ctx.fill(); ctx.restore();
 }
 function onlineModal() {
@@ -3424,7 +3429,6 @@ function onlineModal() {
       const list = NET.others();
       withPop(m, 360, 640, () => {
         plainBoard();
-        ctx.save(); roundRect(230, 160, 260, 60, 14); ctx.fillStyle = '#6f7a1c'; ctx.fill(); ctx.restore();
         text('線上釣友', 360, 190, { size: 36, align: 'center', weight: 900, color: '#ffe36a', stroke: '#2f3a06' });
         const how = NET.mode === 'fire' ? '把遊戲網址傳給朋友，註冊登入後就會出現在這裡。' : '把這個頁面從「分享」選單分享給朋友（設為「協作者」），他們打開後就會出現在這裡。';
         if (!NET.room) wrapText('目前是單機模式，無法連線。', 360, 380, 480, 40, { size: 24, align: 'center', color: '#ffeccc', weight: 700 });
@@ -3456,7 +3460,6 @@ function leaderboardModal() {
       dim();
       withPop(m, 360, 640, () => {
         plainBoard();
-        ctx.save(); roundRect(230, 160, 260, 60, 14); ctx.fillStyle = '#6f7a1c'; ctx.fill(); ctx.restore();
         text('排行榜', 360, 190, { size: 36, align: 'center', weight: 900, color: '#ffe36a', stroke: '#2f3a06' });
         [['week', '週'], ['month', '月'], ['all', '總排名']].forEach(([k, label], i) => {
           if (textBtn('lb' + k, label, 200 + i * 160, 262, 140, 52, { layer: 1, size: 24, colors: m.tab === k ? ['#ffd76a', '#e09a1a'] : ['#8fa4b4', '#4c6070'], edge: m.tab === k ? '#7a4a00' : '#26343f' }).click) m.tab = k;
@@ -3496,7 +3499,6 @@ function recordsModal() {
       dim();
       withPop(m, 360, 640, () => {
         plainBoard();
-        ctx.save(); roundRect(240, 160, 240, 60, 14); ctx.fillStyle = '#6f7a1c'; ctx.fill(); ctx.restore();
         text('我的紀錄', 360, 190, { size: 36, align: 'center', weight: 900, color: '#ffe36a', stroke: '#2f3a06' });
         const ks = Object.keys(FISH);
         ks.forEach((k, i) => {
@@ -3575,7 +3577,6 @@ function chatModal(room) {
       if (!inPond) m.room = 'world';
       withPop(m, 360, 640, () => {
         plainBoard();
-        ctx.save(); roundRect(260, 160, 200, 60, 14); ctx.fillStyle = '#6f7a1c'; ctx.fill(); ctx.restore();
         text('聊天', 360, 190, { size: 36, align: 'center', weight: 900, color: '#ffe36a', stroke: '#2f3a06' });
         const tabs = inPond ? [['pond', pond.p.name], ['world', '世界']] : [['world', '世界']];
         tabs.forEach(([k, label], i) => {
@@ -3651,7 +3652,6 @@ function friendsModal(tab = 'list') {
       dim();
       withPop(m, 360, 640, () => {
         plainBoard();
-        ctx.save(); roundRect(260, 160, 200, 60, 14); ctx.fillStyle = '#6f7a1c'; ctx.fill(); ctx.restore();
         text('好友', 360, 190, { size: 36, align: 'center', weight: 900, color: '#ffe36a', stroke: '#2f3a06' });
         const nReq = Object.keys(NET.requests).length;
         [['list', '好友名單'], ['req', '好友邀請' + (nReq ? ` (${nReq})` : '')], ['add', '加好友']].forEach(([k, label], i) => {
@@ -3787,7 +3787,6 @@ function giftModal(uid, name) {
       dim();
       withPop(m, 360, 640, () => {
         plainBoard();
-        ctx.save(); roundRect(200, 160, 320, 60, 14); ctx.fillStyle = '#6f7a1c'; ctx.fill(); ctx.restore();
         text('送禮給 ' + name, 360, 190, { size: 32, align: 'center', weight: 900, color: '#ffe36a', stroke: '#2f3a06' });
         [['coin', '錢幣'], ['bait', '魚餌'], ['gear', '裝備']].forEach(([k, label], i) => {
           if (textBtn('gt' + k, label, 175 + i * 185, 262, 160, 52, { layer: 1, size: 24, colors: m.tab === k ? ['#ffd76a', '#e09a1a'] : ['#8fa4b4', '#4c6070'], edge: m.tab === k ? '#7a4a00' : '#26343f' }).click) { m.tab = k; m.sel = null; m.off = 0; m.msg = ''; }
@@ -3892,10 +3891,9 @@ function missionsModal() {
       const list = missionList(), per = 6;
       withPop(m, 360, 640, () => {
         plainBoard();
-        ctx.save(); roundRect(260, 160, 200, 60, 14); ctx.fillStyle = '#6f7a1c'; ctx.fill(); ctx.restore();
         text('任務', 360, 190, { size: 36, align: 'center', weight: 900, color: '#ffe36a', stroke: '#2f3a06' });
         list.slice(m.off, m.off + per).forEach((it, i) => {
-          const y = 300 + i * 100;
+          const y = 332 + i * 98;   // cards stay inside the dark panel
           ctx.save(); roundRect(96, y - 44, 528, 90, 14); ctx.fillStyle = it.ok ? 'rgba(255,230,120,.22)' : 'rgba(255,240,210,.12)'; ctx.fill(); ctx.restore();
           text(it.title, 114, y - 20, { size: 23, weight: 900, color: it.soon ? 'rgba(255,255,255,.55)' : '#fff' });
           text(it.desc, 114, y + 6, { size: 16, weight: 700, color: 'rgba(255,236,204,.85)' });
@@ -3922,7 +3920,6 @@ function achievementModal() {
       dim();
       withPop(m, 360, 640, () => {
         plainBoard();
-        ctx.save(); roundRect(260, 160, 200, 60, 14); ctx.fillStyle = '#6f7a1c'; ctx.fill(); ctx.restore();
         text('成就', 360, 190, { size: 36, align: 'center', weight: 900, color: '#ffe36a', stroke: '#2f3a06' });
         [['title', '稱號'], ['fish', '魚種紀錄']].forEach(([k, label], i) => {
           if (textBtn('ac' + k, label, 270 + i * 180, 262, 160, 52, { layer: 1, size: 24, colors: m.tab === k ? ['#ffd76a', '#e09a1a'] : ['#8fa4b4', '#4c6070'], edge: m.tab === k ? '#7a4a00' : '#26343f' }).click) m.tab = k;
@@ -3930,7 +3927,7 @@ function achievementModal() {
         const lv = LV();
         if (m.tab === 'title') {
           TITLES.forEach(([l, name], i) => {
-            const x = i < 7 ? 230 : 490, y = 330 + (i % 7) * 78, got = lv >= l, cur = titleFor(lv) === name;
+            const x = i < 7 ? 230 : 490, y = 326 + (i % 7) * 75, got = lv >= l, cur = titleFor(lv) === name;
             ctx.save(); roundRect(x - 120, y - 30, 240, 62, 16); ctx.fillStyle = cur ? 'rgba(255,214,90,.45)' : got ? 'rgba(255,240,210,.2)' : 'rgba(0,0,0,.18)'; ctx.fill(); if (cur) { ctx.lineWidth = 3; ctx.strokeStyle = '#ffe86a'; ctx.stroke(); } ctx.restore();
             text(name, x - 100, y, { size: 24, weight: 900, color: got ? '#fff' : 'rgba(255,255,255,.4)', font: 'var(--brush)' });
             text('Lv.' + l, x + 104, y, { size: 19, weight: 900, align: 'right', color: got ? '#ffd76a' : 'rgba(255,255,255,.4)' });
@@ -3938,11 +3935,13 @@ function achievementModal() {
           const nx = TITLES.find(([l]) => l > lv);
           text(nx ? `下一個稱號「${nx[1]}」還差 ${fmt(Math.max(0, epForLv(nx[0]) - S.ep))} 經驗` : '已達最高稱號，經驗值會繼續累積', 360, 900, { size: 21, weight: 900, align: 'center', color: '#fff' });
         } else {
-          Object.keys(FISH).forEach((k, i) => {
-            const y = 312 + i * 44; const rec = S.records[k];
-            ui(A.man.meta.species[k].icon, 150, y, { ax: .5, ay: .5, s: .55, a: rec ? 1 : .35 });
-            text(FISH[k].name, 205, y, { size: 23, weight: 900, color: rec ? '#fff' : 'rgba(255,255,255,.45)' });
-            text(rec ? rec + ' 公分' : '尚未釣到', 600, y, { size: 21, weight: 700, color: rec ? '#ffde85' : 'rgba(255,255,255,.45)', align: 'right' });
+          // all species fit inside the dark panel (y 274-822 on the board)
+          const keys = Object.keys(FISH), step = Math.min(44, (798 - 312) / Math.max(1, keys.length - 1));
+          keys.forEach((k, i) => {
+            const y = 312 + i * step; const rec = S.records[k];
+            ui(A.man.meta.species[k].icon, 150, y, { ax: .5, ay: .5, s: step < 42 ? .5 : .55, a: rec ? 1 : .35 });
+            text(FISH[k].name, 205, y, { size: 22, weight: 900, color: rec ? '#fff' : 'rgba(255,255,255,.45)' });
+            text(rec ? rec + ' 公分' : '尚未釣到', 600, y, { size: 20, weight: 700, color: rec ? '#ffde85' : 'rgba(255,255,255,.45)', align: 'right' });
           });
           text(`累計漁獲 ${S.totalCaught} 尾・總重 ${S.stats.kg} 公斤`, 360, 905, { size: 22, align: 'center', weight: 900, color: '#fff' });
         }
@@ -3959,7 +3958,6 @@ function payModal() {
       dim();
       withPop(m, 360, 640, () => {
         plainBoard();
-        ctx.save(); roundRect(260, 160, 200, 60, 14); ctx.fillStyle = '#6f7a1c'; ctx.fill(); ctx.restore();
         text('儲值', 360, 190, { size: 36, align: 'center', weight: 900, color: '#ffe36a', stroke: '#2f3a06' });
         const rows = [['台幣', '1 元 = 10 金幣', '300、1000、3000、5000、10000'], ['美金', '1 元 = 300 金幣', '300、1500、3000、15000、30000'], ['人民幣', '1 元 = 50 金幣', '250、500、2500、5000、25000']];
         text('幣別', 130, 300, { size: 20, weight: 900, color: '#ffd76a' }); text('換算', 250, 300, { size: 20, weight: 900, color: '#ffd76a' }); text('儲值金額', 420, 300, { size: 20, weight: 900, color: '#ffd76a' });
@@ -3978,7 +3976,6 @@ function lotteryModal() {
       dim();
       withPop(m, 360, 640, () => {
         plainBoard();
-        ctx.save(); roundRect(240, 160, 240, 60, 14); ctx.fillStyle = '#6f7a1c'; ctx.fill(); ctx.restore();
         text('幸運摸彩', 360, 190, { size: 36, align: 'center', weight: 900, color: '#ffe36a', stroke: '#2f3a06' });
         const games = [['赤鐵運盤', '大轉盤', '木魚卡', 1000], ['青銅玄盤', '大轉盤', '銅魚卡', 2000], ['乾坤銀盤', '水果盤', '銀魚卡', 5000], ['太極金盤', '水果盤', '金魚卡', 10000]];
         games.forEach(([n, ty, card, g], i) => {
