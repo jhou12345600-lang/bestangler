@@ -1,11 +1,13 @@
 # Apache 主機用（其他主機可忽略這個檔案）
 AddType image/webp .webp
 AddType application/json .json
+AddType audio/mpeg .mp3
+AddType audio/wav .wav
 <IfModule mod_headers.c>
   <FilesMatch "^(index\.html|firebase-config\.js|assets\.json)$">
     Header set Cache-Control "no-cache"
   </FilesMatch>
-  <FilesMatch "\.(webp|js)$">
+  <FilesMatch "\.(webp|js|mp3|wav)$">
     Header set Cache-Control "public, max-age=604800"
   </FilesMatch>
 </IfModule>

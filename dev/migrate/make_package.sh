@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 OUT=${1:-bestangler-site.zip}; T=$(mktemp -d); D="$T/bestangler-site"; mkdir -p "$D"
-cp -r index.html assets.json img lib "$D/"
+cp -r index.html assets.json img lib sfx "$D/"
 cp dev/migrate/firebase-config.template.js "$D/firebase-config.js"
 cp dev/migrate/htaccess.example "$D/.htaccess"
 cp dev/migrate/架設說明.txt "$D/"

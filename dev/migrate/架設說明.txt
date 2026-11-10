@@ -13,6 +13,7 @@
     assets.json         素材清單
     img/                美術素材（121 個 webp 檔，約 58 MB）
     lib/                Firebase 程式庫
+    sfx/                背景音樂和音效（約 4.6 MB）
     .htaccess           Apache 主機的快取設定，其他主機可不放
 
 二、填 Firebase 設定
@@ -22,10 +23,10 @@
 
 三、主機設定（長期營運建議）
   1. 一定要用 HTTPS。
-  2. 副檔名類型：.webp 要回傳 image/webp，.json 要回傳 application/json。多數主機預設就對。
+  2. 副檔名類型：.webp 要回傳 image/webp，.json 要回傳 application/json，.mp3 要回傳 audio/mpeg，.wav 要回傳 audio/wav。多數主機預設就對。
   3. 快取：
      - index.html、firebase-config.js、assets.json 設成不快取（no-cache），更新後玩家馬上拿到新版。
-     - img/ 和 lib/ 可以快取久一點（例如 7 天）。
+     - img/、lib/、sfx/ 可以快取久一點（例如 7 天）。
      - 更新美術素材時，assets.json 會一起換，新的圖會重新下載。
   4. 建議開 gzip 或 brotli 壓縮（html、js、json）。webp 已經壓縮過，不用再壓。
   5. 素材是用到才下載：第一次開遊戲到進入一個釣池大約 6 MB，每多去一個釣池再多幾 MB。
@@ -37,7 +38,7 @@
        try_files $uri $uri/ =404;
      }
      location ~* ^/(index\.html|firebase-config\.js|assets\.json)$ { add_header Cache-Control "no-cache"; }
-     location ~* \.(webp|js)$ { add_header Cache-Control "public, max-age=604800"; }
+     location ~* \.(webp|js|mp3|wav)$ { add_header Cache-Control "public, max-age=604800"; }
      gzip on; gzip_types application/javascript application/json text/html;
 
 四、Firebase 那邊要記得

@@ -526,10 +526,65 @@ function textBtn(id, label, x, y, w, h, o = {}) {
 }
 
 /* ---------------- audio (synthesised, starts after first tap) ---------------- */
+/* 官方音樂音效（sfx/）：背景音樂用 <audio> 串流（接進 WebAudio 調音量），短音效解碼後用 WebAudio 播。
+   檔案還沒載入時退回原本的合成音。 */
+const SFX = { btn: 'btn.mp3', top: 'top.mp3', park: 'park.mp3', pond: 'pond.mp3', err: 'err.mp3', coins: 'coins.mp3', fireworks: 'fireworks.mp3',
+  reelStart: 'reel-start.mp3', reelLoop: 'reel-loop.wav', reelStop: 'reel-stop.mp3', cast: 'cast.mp3', net: 'net.mp3', snap: 'snap.mp3', plop: 'plop.mp3', caught: 'caught.mp3' };
+const BGM = { lobby: ['bgm-lobby.mp3', .55], fish: ['bgm-fish.mp3', .45], fight: ['bgm-fight.mp3', .5], result: ['bgm-result.mp3', .5] };
 const audio = {
   ctx: null, master: null, amb: null, on: true,
+  buf: {}, loading: {}, lastSfx: 0, bgmEl: null, bgmGain: null, want: null, cur: null, reeling: false,
+  load(k) {
+    if (!this.ctx || this.buf[k] || this.loading[k]) return;
+    this.loading[k] = fetch('sfx/' + SFX[k]).then(r => r.arrayBuffer())
+      .then(b => new Promise((ok, no) => { const p = this.ctx.decodeAudioData(b, ok, no); if (p && p.then) p.then(ok, no); }))
+      .then(d => { this.buf[k] = d; }).catch(() => { this.loading[k] = null; });
+  },
+  // play a sample; returns the source node (or null when it is not loaded yet)
+  play(k, vol = 1, o = {}) {
+    if (!this.ctx) return null; const b = this.buf[k]; if (!b) { this.load(k); return null; }
+    const t0 = this.ctx.currentTime + (o.delay || 0);
+    const src = this.ctx.createBufferSource(), g = this.ctx.createGain(); src.buffer = b; src.loop = !!o.loop; g.gain.value = vol;
+    src.connect(g); g.connect(this.master); src.start(t0); this.lastSfx = performance.now(); src._g = g; return src;
+  },
+  stopSrc(src, fade = .08) { if (!src) return; try { const t = this.ctx.currentTime; src._g.gain.setTargetAtTime(0, t, fade / 3); src.stop(t + fade + .05); } catch (e) {} },
+  initMedia() {
+    const el = new Audio(); el.loop = true; el.preload = 'auto'; this.bgmEl = el;
+    try { const src = this.ctx.createMediaElementSource(el); this.bgmGain = this.ctx.createGain(); this.bgmGain.gain.value = 0; src.connect(this.bgmGain); this.bgmGain.connect(this.master); } catch (e) { this.bgmGain = null; }
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) { el.pause(); this.ctx.suspend && this.ctx.suspend(); }
+      else { this.ctx.resume && this.ctx.resume(); if (this.cur && S.sound) el.play().catch(() => {}); }
+    });
+    for (const k in SFX) this.load(k);
+    if (this.want) { const w = this.want; this.want = null; this.bgm(w); }
+  },
+  // background music for the current scene, cross-faded
+  bgm(name) {
+    this.want = name;
+    if (!this.bgmEl || this.cur === name) return;
+    const el = this.bgmEl, g = this.bgmGain, c = this.ctx;
+    const start = () => {
+      const n = this.want; if (!n) return; this.cur = n;
+      el.src = 'sfx/' + BGM[n][0]; try { el.currentTime = 0; } catch (e) {}
+      if (g) { g.gain.cancelScheduledValues(c.currentTime); g.gain.setValueAtTime(0, c.currentTime); g.gain.linearRampToValueAtTime(BGM[n][1], c.currentTime + .8); } else el.volume = BGM[n][1];
+      if (S.sound) el.play().catch(() => {});
+    };
+    clearTimeout(this._sw);
+    if (this.cur && g) { g.gain.cancelScheduledValues(c.currentTime); g.gain.setTargetAtTime(0, c.currentTime, .12); this._sw = setTimeout(start, 420); } else start();
+  },
+  // 捲線器：開始收線 → start + loop，停止 → stop
+  reelSet(on) {
+    if (on === this.reeling || !this.ctx) return; this.reeling = on;
+    if (on) {
+      this._rs = this.play('reelStart', .7);
+      this._rl = this.play('reelLoop', .55, { loop: true, delay: this._rs ? 1.9 : 0 });
+    } else {
+      this.stopSrc(this._rs); this.stopSrc(this._rl); this._rs = this._rl = null;
+      this.play('reelStop', .6);
+    }
+  },
   unlock() {
-    if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); return; }
+    if (this.ctx) { if (this.ctx.state === 'suspended') this.ctx.resume(); if (this.bgmEl && this.cur && S.sound && this.bgmEl.paused) this.bgmEl.play().catch(() => {}); return; }
     try {
       const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
       this.ctx = new AC(); this.master = this.ctx.createGain(); this.master.gain.value = S.sound ? .8 : 0; this.master.connect(this.ctx.destination);
@@ -542,8 +597,12 @@ const audio = {
       this.amb = this.ctx.createGain(); this.amb.gain.value = 0;
       src.connect(f); f.connect(this.amb); this.amb.connect(this.master); src.start();
     } catch (e) { this.ctx = null; }
+    if (this.ctx) this.initMedia();
   },
-  setSound(on) { S.sound = on; save(); if (this.master) this.master.gain.value = on ? .8 : 0; },
+  setSound(on) {
+    S.sound = on; save(); if (this.master) this.master.gain.value = on ? .8 : 0;
+    if (this.bgmEl) { if (on && this.cur) this.bgmEl.play().catch(() => {}); else this.bgmEl.pause(); }
+  },
   ambience(v) { if (this.amb) this.amb.gain.setTargetAtTime(v, this.ctx.currentTime, .6); },
   tone(f, dur, type = 'sine', vol = .2, slide = 0, delay = 0) {
     if (!this.ctx) return; const t0 = this.ctx.currentTime + delay;
@@ -559,15 +618,17 @@ const audio = {
     const g = this.ctx.createGain(); g.gain.setValueAtTime(vol, t0); g.gain.exponentialRampToValueAtTime(.001, t0 + dur);
     s.connect(f); f.connect(g); g.connect(this.master); s.start(t0, Math.random() * 2); s.stop(t0 + dur + .05);
   },
-  click() { this.tone(900, .06, 'triangle', .12, -300); },
+  // 一般按鈕；同一下已經放了專屬音效（大廳按鈕、錯誤）就不再疊
+  click() { if (performance.now() - this.lastSfx < 120) return; if (!this.play('btn', .8)) this.tone(900, .06, 'triangle', .12, -300); },
+  err() { this.play('err', .7) || this.tone(220, .2, 'square', .1, -60); },
   splash(big = 1) { this.noise(.35 + big * .35, .5 * big, 900, .6); this.noise(.25, .25 * big, 2600, .9, .03); },
-  plop() { this.tone(420, .12, 'sine', .25, -260); this.noise(.12, .15, 1800, 1.5); },
-  swish() { this.noise(.32, .35, 2400, 1.2, 0, 'highpass'); },
+  plop() { if (!this.play('plop', .8)) { this.tone(420, .12, 'sine', .25, -260); this.noise(.12, .15, 1800, 1.5); } },
+  swish() { if (!this.play('cast', .9)) this.noise(.32, .35, 2400, 1.2, 0, 'highpass'); },
   reel(rate) { if (Math.random() < rate * .6) this.noise(.03, .08 + rate * .08, 3800, 6); },
   creak(t) { this.tone(110 + t * 90, .14, 'sawtooth', .025 + t * .05, 30); },
-  snap() { this.noise(.18, .6, 3200, 2); this.tone(1400, .15, 'square', .12, -1200); },
+  snap() { if (!this.play('snap', .9)) { this.noise(.18, .6, 3200, 2); this.tone(1400, .15, 'square', .12, -1200); } },
   bite() { this.tone(660, .09, 'square', .12); this.tone(990, .12, 'square', .12, 0, .09); },
-  win() { [523, 659, 784, 1046].forEach((f, i) => this.tone(f, .28, 'triangle', .18, 0, i * .11)); this.tone(1318, .5, 'sine', .14, 0, .48); },
+  win() { if (!this.play('caught', .9)) { [523, 659, 784, 1046].forEach((f, i) => this.tone(f, .28, 'triangle', .18, 0, i * .11)); this.tone(1318, .5, 'sine', .14, 0, .48); } },
   lose() { [392, 330, 262].forEach((f, i) => this.tone(f, .3, 'triangle', .16, 0, i * .14)); },
   coin() { this.tone(1568, .08, 'square', .08); this.tone(2093, .18, 'square', .08, 0, .07); },
 };
@@ -1140,7 +1201,7 @@ function go(sc, arg) { nextScene = [sc, arg]; fadeDir = 1; }
 function openModal(m) { modals.push(m); m.t = 0; audio.click(); }
 function closeModal(m) { const i = modals.indexOf(m || modals[modals.length - 1]); if (i >= 0) modals.splice(i, 1); }
 const toast = { msg: '', t: 0 };
-function say(msg, dur = 2.2) { toast.msg = msg; toast.t = dur; }
+function say(msg, dur = 2.2) { toast.msg = msg; toast.t = dur; if (/不足|不夠|需要 ?Lv|無法|不能|失敗|請先|已滿|上限|錯誤|不符/.test(msg)) audio.err(); }
 
 /* ---------------- shared HUD (top bar) ---------------- */
 function hudTop(o = {}) {
@@ -1199,7 +1260,7 @@ function drawSpeaker(x, y, on) {
    ===================================================================== */
 const titleScene = {
   p: 0, ready: false, t: 0,
-  enter() { this.t = 0; audio.ambience(.04); },
+  enter() { this.t = 0; audio.ambience(.04); audio.bgm('lobby'); },
   exit() { hideFields(); },
   update(dt) { this.t += dt; },
   draw() {
@@ -1401,7 +1462,7 @@ const lobbyScene = {
   camX: 0, camY: 0, vx: 0, vy: 0, drag: null, t: 0, birds: [],
   ms() { return Math.max(1, LW / 1440); },   // the 1440x1280 map is enlarged to fill wide screens
   enter() {
-    this.t = 0; audio.ambience(.05);
+    this.t = 0; audio.ambience(.05); audio.bgm('lobby');
     if (this.camX === 0) this.camX = 0;
     this.birds = Array.from({ length: 3 }, (_, i) => ({ x: rnd(0, 1440), y: rnd(160, 420), v: rnd(30, 60), f: rnd(8), s: rnd(.35, .6) }));
     ensure(['img:lobby-map', 'img:lobby-bg-cloud1', 'img:lobby-bg-cloud2', 'img:lobby-bg-cloud3', 'anim:bird', 'anim:missionfx']);
@@ -1457,13 +1518,13 @@ const lobbyScene = {
         ui('lobby/button-pond-locked', x + 44, y - 50, { s: .55, ax: .5, ay: .5 });
         text('Lv.' + p.lv, x, y + 102, { size: 22, align: 'center', weight: 900, stroke: '#3a1000', color: '#ffd76a' });
       }
-      if (b.click && P.moved < 24) { if (lv < p.lv) say(`需要 Lv.${p.lv} 才能解鎖${p.name}`); else openModal(pondBoard(p)); }
+      if (b.click && P.moved < 24) { if (lv < p.lv) say(`需要 Lv.${p.lv} 才能解鎖${p.name}`); else { audio.play('pond', .8); openModal(pondBoard(p)); } }
     });
     // amusement park (locked)
     const lx = 760, ly = 1100;
     {
       ui('lobby/button-locky-lightwheel', lx, ly, { s: .5, ax: .5, ay: .5, a: .7 });
-      if (btn('locky', 'lobby/button-locky', lx, ly, { s: .62 }).click) openModal(lotteryModal());
+      if (btn('locky', 'lobby/button-locky', lx, ly, { s: .62 }).click) { audio.play('park', .8); openModal(lotteryModal()); }
       ui('lobby/button-pond-locked', lx + 56, ly - 50, { s: .5, ax: .5, ay: .5 });
     }
   },
@@ -1474,6 +1535,7 @@ const lobbyScene = {
     const menu = [['achievement', 'lobby/up-button-achievement'], ['ranking', 'lobby/up-button-ranking'], ['tackle', 'lobby/up-button-tackle'], ['gift', 'lobby/up-button-gift'], ['shop', 'lobby/up-button-shop']];
     menu.forEach(([id, key], i) => {
       const b = btn('m' + id, key, 74 + i * 143, 262, { s: .98 });
+      if (b.click) audio.play('top', .8);
       if (b.click) {
         if (id === 'shop') openModal(shopModal());
         else if (id === 'tackle') openModal(tackleModal());
@@ -1483,7 +1545,7 @@ const lobbyScene = {
       }
     });
     const b2 = [['invite', 'lobby/up-button-invite'], ['ad', 'lobby/up-button-AD']];
-    b2.forEach(([id, key], i) => { if (btn('m' + id, key, 74 + i * 143, 392, { s: .98 }).click) openModal(id === 'invite' && NET.mode === 'fire' && FB.user ? friendsModal('add') : id === 'invite' ? messageModal(NET.mode === 'fire' ? '邀請朋友一起釣：\n把遊戲網址傳給朋友，註冊帳號登入後，進到同一個池就會站在你旁邊！' : '邀請朋友一起釣：\n1. 點頁面右上角的「分享」\n2. 加入朋友，權限選「協作者」\n3. 朋友打開同一個連結，進到同一個池就會站在你旁邊！', '邀請好友') : messageModal('目前沒有廣告活動。', '廣告')); });
+    b2.forEach(([id, key], i) => { if (btn('m' + id, key, 74 + i * 143, 392, { s: .98 }).click && (audio.play('top', .8), true)) openModal(id === 'invite' && NET.mode === 'fire' && FB.user ? friendsModal('add') : id === 'invite' ? messageModal(NET.mode === 'fire' ? '邀請朋友一起釣：\n把遊戲網址傳給朋友，註冊帳號登入後，進到同一個池就會站在你旁邊！' : '邀請朋友一起釣：\n1. 點頁面右上角的「分享」\n2. 加入朋友，權限選「協作者」\n3. 朋友打開同一個連結，進到同一個池就會站在你旁邊！', '邀請好友') : messageModal('目前沒有廣告活動。', '廣告')); });
     // who's online
     const n = NET.others().length;
     const oc = { x: 20, y: 460, w: 230, h: 56 };
@@ -1504,7 +1566,7 @@ const lobbyScene = {
     pill('lchar', '🧑 換角色', NET.mode === 'fire' ? 652 : NET.canChat() ? 590 : 528, 0, () => openModal(charModal()));
     const mxx = LW - 70;
     frame('missionfx', this.t * 15, mxx, 410, { s: .82 });
-    if (btn('mmission', 'lobby/up-button-missions', mxx, 410, { s: .98 }).click) openModal(missionsModal());
+    if (btn('mmission', 'lobby/up-button-missions', mxx, 410, { s: .98 }).click) { audio.play('top', .8); openModal(missionsModal()); }
     const nOk = missionList().filter(x => x.ok).length;
     if (nOk) { ctx.save(); ctx.fillStyle = '#ff4a3a'; ctx.beginPath(); ctx.arc(mxx + 44, 366, 16, 0, Math.PI * 2); ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#fff'; ctx.stroke(); ctx.restore(); text(String(nOk), mxx + 44, 367, { size: 18, weight: 900, align: 'center', color: '#fff' }); }
     // scroll hint
@@ -1658,7 +1720,7 @@ const pond = {
     for (let k = 0; k < 40; k++) { const c = (k % 2 ? 1 : -1) * Math.ceil(k / 2) * .35; if (c < DOCK[0] || c > DOCK[1]) continue; if (taken.every(x => Math.abs(x - c) > .85)) { best = c; break; } }
     this.wx = best; this.camW = best; this.follow = true; this.walk = { dir: 0, ph: 0 }; this.peerX = {}; this.pan = null; this.autoTo = null;
     CAMX = 0; water.cam = this.camW * 300;
-    audio.ambience(.12);
+    audio.ambience(.12); audio.bgm('fish');
     // a loose school of small fish cruising the shallows
     const small = p.fish.slice().sort((a, b) => FISH[a].max - FISH[b].max)[0];
     this.school = { sp: small, cx: rnd(-3, 3), cz: rnd(5, 9), h: rnd(0, 6.28), fish: Array.from({ length: 7 }, () => ({ ox: rnd(-.9, .9), oz: rnd(-.6, .6), ph: rnd(0, 20), len: rnd(FISH[small].min, FISH[small].max * .7), d: rnd(.2, .6) })) };
@@ -1671,7 +1733,7 @@ const pond = {
     water.rip = [];
     glc.style.visibility = 'visible';
   },
-  exit() { glc.style.visibility = 'hidden'; audio.ambience(.05); NET.lastJson = ''; CAMX = 0; water.cam = 0; this.walk.dir = 0; },
+  exit() { glc.style.visibility = 'hidden'; audio.ambience(.05); audio.reelSet(false); NET.lastJson = ''; CAMX = 0; water.cam = 0; this.walk.dir = 0; },
   /* ----- the dock: other players, walking, camera ----- */
   peerTarget(pe) {
     const x = +pe.presence.x;
@@ -1734,7 +1796,11 @@ const pond = {
     const m = A.man.img[key]; if (!m) return;
     const w = LW; for (let i = Math.floor(shift / w); i * w - shift < LW; i++) img(key, Math.floor(i * w - shift), y, { w: w + 1, h, flip: (i & 1) !== 0, a });
   },
-  setState(s) { this.st = s; this.stT = 0; },
+  setState(s) {
+    this.st = s; this.stT = 0;
+    if (s === 'hookset' || s === 'fight') audio.bgm('fight');
+    else if (s !== 'land') { audio.bgm('fish'); audio.reelSet(false); }
+  },
   rod() { return RODS[S.equip.rod]; },
   isLure() { return this.p.mode === 'lure'; },
   // species this tackle can catch here, weighted by the bait's 釣獲率 (spec: 裝備-魚餌 / 釣線 / 釣竿)
@@ -2030,7 +2096,7 @@ const pond = {
       }
     } else if (F.jump) F.jump = null;
     if (ten > .75) audio.creak(ten);
-    if (Pv > 0) audio.reel(Pv / 100);
+    audio.reelSet(Pv > 0);
     // the end of the fight
     if (F.phase === 'under' && F.U <= 0 && F.uy <= .08) { F.phase = 'surface'; this.view = 'surface'; F.x = .6; F.z = 2.4; this.line.L = 2.4; }
     if (F.U <= 0 && (F.phase === 'surface') && this.line.L <= 2.5) this.land();
@@ -2038,11 +2104,11 @@ const pond = {
   lose(why) {
     this.setState('lost'); this.loseWhy = why; this.view = 'surface';
     if (why === 'broken') { audio.snap(); if (this.isLure()) { const i = S.owned.lure.indexOf(S.equip.bait); if (i >= 0) { S.owned.lure.splice(i, 1); say('假餌隨斷線遺失了。'); } } }
-    else audio.lose();
+    else audio.snap();   // 脫鉤（官方音效「斷線脫鉤」）
     try { navigator.vibrate && navigator.vibrate([40, 40, 80]); } catch (e) {}
     save();
   },
-  land() { this.setState('land'); this.view = 'surface'; audio.splash(1.1); },
+  land() { this.setState('land'); this.view = 'surface'; audio.splash(1.1); audio.reelSet(false); audio.play('net', .8); },
 
   /* ----- input: 收線按鈕 (spec: tap = one notch up, hold = climbs, 2 s idle = drops one notch a second) ----- */
   readControls(dt) {
@@ -2994,7 +3060,8 @@ function drawEye(x, y) {
    ===================================================================== */
 const catchScene = {
   r: null, t: 0, done: false,
-  enter(r) { this.r = r; this.t = 0; this.done = false; audio.ambience(.06); },
+  enter(r) { this.r = r; this.t = 0; this.done = false; audio.ambience(.06); audio.bgm('result'); this._fw = audio.play('fireworks', .45); },
+  exit() { audio.stopSrc(this._fw, .4); this._fw = null; },
   update(dt) { this.t += dt; },
   draw() {
     const r = this.r, t = this.t;
@@ -3061,7 +3128,7 @@ const catchScene = {
   finish() {
     const r = this.r; this.done = true;
     const lv0 = LV();
-    S.silver += r.silver; S.gold += r.gold; addEp(r.ep); audio.coin();
+    S.silver += r.silver; S.gold += r.gold; addEp(r.ep); if (!audio.play('coins', .8)) audio.coin();
     S.records[r.sp] = r.record; S.totalCaught++;
     S.today.list.push({ sp: r.sp, len: r.len, stars: r.stars, score: r.silver, sold: true });
     // stats for missions
