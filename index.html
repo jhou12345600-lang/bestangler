@@ -172,16 +172,16 @@ function fishKg(sp, len) {
 const PONDS = [
   { id: 1, name: '休閒池', lv: 1, bgKey: 'pond1', mode: 'float', rods: ['pole'], bet: true, fee: { per: 'cast', cur: 's', amt: 1 },
     rules: ['本池限用手竿釣組。', '每丟一竿最低收銀幣 1 元。', '加注時若釣到魚可以乘倍。', '不限制使用誘餌。', '不限時間可以釣魚。'],
-    fish: ['niloticus', 'tinfoil', 'rainbow', 'carp'], pin: [175, 965], btn: 'lobby/button-pond1' },
+    fish: ['niloticus', 'tinfoil', 'rainbow', 'carp'], pin: [860, 790], btn: 'lobby/button-pond1' },
   { id: 2, name: '競技池', lv: 3, bgKey: 'pond2', mode: 'float', rods: ['pole'], fee: { per: 'cast', cur: 'g', amt: 1 },
     rules: ['本池限用手竿釣組。', '每丟一竿收金幣 1 元。', '不限制使用誘餌。', '福壽魚采金：10 金幣。', '日鯽采金：15 金幣。'],
-    fish: ['tilapia', 'crucian'], pin: [420, 725], btn: 'lobby/button-pond2' },
+    fish: ['tilapia', 'crucian'], pin: [1425, 345], btn: 'lobby/button-pond2' },
   { id: 3, name: '路亞池', lv: 5, bgKey: 'pond3', mode: 'lure', rods: ['lure'], fee: { per: 'room', cur: 'g', amt: 100 },
     rules: ['本池限用路亞竿釣組。', '每釣 10 分鐘收金幣 100 元。', '可以無限丟出竿。', '不得使用誘餌。', '曲腰魚采金 50、大口黑鱸采金 100、孔雀鱸采金 300 金幣。'],
-    fish: ['culter', 'bbass', 'peacock'], pin: [610, 985], btn: 'lobby/button-pond3' },
+    fish: ['culter', 'bbass', 'peacock'], pin: [395, 750], btn: 'lobby/button-pond3' },
   { id: 4, name: '戰鬥池', lv: 7, bgKey: 'pond4', mode: 'float', rods: ['pole', 'cast'], fee: { per: 'room', cur: 'g', amt: 1000 },
     rules: ['本池限用手竿及投竿釣組。', '每釣 10 分鐘收金幣 1000 元。', '可以無限丟出竿。', '不得使用誘餌。', '采金：白石鱸 500、眼斑擬石首魚 700、點帶石斑 1000、龍膽石斑 3000 金幣。'],
-    fish: ['whitegrunt', 'corvina', 'grouper', 'giantgrouper'], pin: [1040, 845], btn: 'lobby/button-pond4' },
+    fish: ['whitegrunt', 'corvina', 'grouper', 'giantgrouper'], pin: [1575, 740], btn: 'lobby/button-pond4' },
 ];
 // 裝備-釣竿: cast = 拋投距離 (1 nearest … 5 farthest), line = 釣線長度 (m), maxCm = 魚體尺寸限制. len/kind are for drawing.
 const RODS_BY_CODE = {};
@@ -1458,14 +1458,26 @@ function confirmModal(msg, onYes) {
 /* =====================================================================
    SCENE: lobby (map with ponds)
    ===================================================================== */
+/* 大廳（官方 2026-11 新版）：1920x1080 地圖縮放到畫面高度（寬螢幕放大到填滿），
+   上方 UI 群組固定在畫面正中央；直版時左右滑動地圖。雲朵由右往左慢慢飄出畫面，每朵速度不同。
+   座標都用官方設計稿的 1920x1080 像素。 */
+const LOBBY_W = 1920, LOBBY_H = 1080;
 const lobbyScene = {
-  camX: 0, camY: 0, vx: 0, vy: 0, drag: null, t: 0, birds: [],
-  ms() { return Math.max(1, LW / 1440); },   // the 1440x1280 map is enlarged to fill wide screens
+  camX: 0, camY: 0, vx: 0, vy: 0, drag: null, t: 0, birds: [], clouds: [], camInit: false,
+  ms() { return Math.max(LH / LOBBY_H, LW / LOBBY_W); },          // map scale (cover)
+  us() { return Math.min(LH / LOBBY_H, (LW - 16) / 712); },       // UI scale: the 712-px-wide UI group always fits
+  newCloud(x) {
+    const k = rint(1, 3);
+    return { k: 'lobby2-cloud' + k, x: x ?? LOBBY_W + rnd(40, 520), y: rnd(200, 720), s: rnd(.75, 1.3), v: rnd(9, 26), ph: rnd(0, 6.3), a: rnd(.75, .95) };
+  },
   enter() {
     this.t = 0; audio.ambience(.05); audio.bgm('lobby');
-    if (this.camX === 0) this.camX = 0;
-    this.birds = Array.from({ length: 3 }, (_, i) => ({ x: rnd(0, 1440), y: rnd(160, 420), v: rnd(30, 60), f: rnd(8), s: rnd(.35, .6) }));
-    ensure(['img:lobby-map', 'img:lobby-bg-cloud1', 'img:lobby-bg-cloud2', 'img:lobby-bg-cloud3', 'anim:bird', 'anim:missionfx']);
+    if (!this.camInit) {   // start centred on the map
+      const ms = this.ms(); this.camX = Math.max(0, (LOBBY_W * ms - LW) / 2); this.camY = Math.max(0, (LOBBY_H * ms - LH) / 2); this.camInit = true;
+    }
+    this.birds = Array.from({ length: 3 }, () => ({ x: rnd(0, LOBBY_W), y: rnd(220, 520), v: rnd(30, 60), f: rnd(8), s: rnd(.35, .6) }));
+    if (!this.clouds.length) this.clouds = Array.from({ length: 5 }, (_, i) => this.newCloud(rnd(-200, LOBBY_W) + i * 80));
+    ensure(['img:lobby-map2', 'img:lobby-topbg', 'img:lobby2-cloud1', 'img:lobby2-cloud2', 'img:lobby2-cloud3', 'img:lobby2-locky', 'img:lobby2-lightwheel', 'anim:bird', 'anim:missionfx']);
     // 每日登入 (100 銀幣, lobby only) and the 連續 7 天登入 streak
     const td = localDate(new Date());
     if (S.lastLogin !== td) {
@@ -1480,80 +1492,102 @@ const lobbyScene = {
   },
   update(dt) {
     this.t += dt;
-    const ms = this.ms(), mapW = 1440 * ms, mapH = 1280 * ms;
-    if (ACTIVE_LAYER === 0 && P.justDown && P.dy > 250) this.drag = { x: P.x, y: P.y, cam: this.camX, camy: this.camY, moved: 0 };
+    const ms = this.ms(), mapW = LOBBY_W * ms, mapH = LOBBY_H * ms;
+    // swipe the map (anywhere below the top bar); a swipe never counts as a button press
+    if (ACTIVE_LAYER === 0 && P.justDown && P.dy > 185 * this.us()) this.drag = { x: P.x, y: P.y, cam: this.camX, camy: this.camY };
     if (this.drag && P.down) {
       const nx = this.drag.cam - (P.x - this.drag.x), ny = this.drag.camy - (P.y - this.drag.y);
       this.vx = (nx - this.camX) / Math.max(dt, .001); this.vy = (ny - this.camY) / Math.max(dt, .001); this.camX = nx; this.camY = ny;
     }
     if (this.drag && !P.down) this.drag = null;
     if (!this.drag) { this.camX += this.vx * dt; this.vx *= Math.pow(.02, dt); this.camY += this.vy * dt; this.vy *= Math.pow(.02, dt); }
-    // mouse wheel / arrow keys scroll the map too (desktop)
     if (keys.ArrowLeft) this.camX -= 600 * dt; if (keys.ArrowRight) this.camX += 600 * dt;
     if (keys.ArrowUp) this.camY -= 600 * dt; if (keys.ArrowDown) this.camY += 600 * dt;
-    if (WHEEL.dy || WHEEL.dx) { if (mapH > LH + 1) this.camY += WHEEL.dy; else this.camX += WHEEL.dy; this.camX += WHEEL.dx; WHEEL.dx = WHEEL.dy = 0; }
+    if (WHEEL.dy || WHEEL.dx) { if (mapW > LW + 1) this.camX += WHEEL.dy + WHEEL.dx; else this.camY += WHEEL.dy; WHEEL.dx = WHEEL.dy = 0; }
     this.camX = clamp(this.camX, 0, Math.max(0, mapW - LW)); this.camY = clamp(this.camY, 0, Math.max(0, mapH - LH));
-    for (const b of this.birds) { b.x += b.v * dt; b.f += dt * 10; if (b.x > 1500) { b.x = -100; b.y = rnd(160, 420); } }
+    if (this.camX <= 0 || this.camX >= mapW - LW) this.vx = 0;
+    for (const b of this.birds) { b.x += b.v * dt; b.f += dt * 10; if (b.x > LOBBY_W + 100) { b.x = -100; b.y = rnd(220, 520); } }
+    // clouds drift right → left, each at its own slowly changing pace, and leave the map before a new one comes in
+    this.clouds.forEach((c, i) => {
+      c.x -= c.v * (1 + .35 * Math.sin(this.t * .13 + c.ph)) * dt;
+      const w = (A.man.img[c.k] ? A.man.img[c.k].w : 370) * c.s;
+      if (c.x + w < -40) this.clouds[i] = this.newCloud();
+    });
   },
   draw() {
     const ms = this.ms();
-    withView(-Math.round(this.camX), -Math.round(this.camY), ms, () => this.drawMap(Math.round(this.camX / ms)));
+    withView(-Math.round(this.camX), -Math.round(this.camY), ms, () => this.drawMap());
     this.drawUI();
   },
-  drawMap(cx) {
-    img('lobby-map', 0, 0, { w: 1440, h: 1280 });
-    // drifting clouds over the sky band
-    const cl = ['lobby-bg-cloud1', 'lobby-bg-cloud2', 'lobby-bg-cloud3'];
-    cl.forEach((k, i) => { const x = ((this.t * (8 + i * 4) + i * 520) % 1900) - 300 + cx * .7; img(k, x, 120 + i * 70, { a: .85, s: .9 }); });
-    for (const b of this.birds) frame('bird', b.f, b.x + cx * .2, b.y, { s: b.s });
+  drawMap() {
+    img('lobby-map2', 0, 0, { w: LOBBY_W, h: LOBBY_H });
+    for (const b of this.birds) frame('bird', b.f, b.x, b.y, { s: b.s });
+    for (const c of this.clouds) img(c.k, c.x, c.y, { s: c.s, a: c.a });
+    // 遊樂場
+    const lx = 805, ly = 605;
+    ctx.save(); ctx.translate(lx, ly); ctx.rotate(this.t * .35); img('lobby2-lightwheel', -129, -129, { a: .85 }); ctx.restore();
+    const lh = hit('locky', { x: lx - 85, y: ly - 97, w: 171, h: 194 }), lp = lh.held ? .93 : 1;
+    img('lobby2-locky', lx, ly, { s: lp, ax: .5, ay: .5 });
+    if (lh.click && P.moved < 24) { audio.play('park', .8); openModal(lotteryModal()); }
+    ui('lobby/button-pond-locked', lx + 48, ly - 62, { s: .72, ax: .5, ay: .5 });
     // pond pins
     const lv = LV();
     PONDS.forEach((p, i) => {
-      const x = p.pin[0], y = p.pin[1] + Math.sin(this.t * 2 + i) * 6;
-      ctx.save(); ctx.globalAlpha = .35; ctx.fillStyle = '#000'; ctx.beginPath(); ctx.ellipse(x, p.pin[1] + 92, 34, 10, 0, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+      const x = p.pin[0], y = p.pin[1] + Math.sin(this.t * 2 + i) * 5;
       const b = btn('pond' + p.id, p.btn, x, y, { ay: .5, s: 1 });
       const here = NET.pondPeers(p.id).length;
-      if (here) { ctx.save(); ctx.fillStyle = '#ff5a3a'; ctx.beginPath(); ctx.arc(x - 48, y - 58, 20, 0, Math.PI * 2); ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#fff'; ctx.stroke(); ctx.restore(); text(String(here), x - 48, y - 57, { size: 22, weight: 900, align: 'center', color: '#fff' }); }
+      if (here) { ctx.save(); ctx.fillStyle = '#ff5a3a'; ctx.beginPath(); ctx.arc(x - 50, y - 62, 20, 0, Math.PI * 2); ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#fff'; ctx.stroke(); ctx.restore(); text(String(here), x - 50, y - 61, { size: 22, weight: 900, align: 'center', color: '#fff' }); }
       if (lv < p.lv) {
-        ui('lobby/button-pond-locked', x + 44, y - 50, { s: .55, ax: .5, ay: .5 });
+        ui('lobby/button-pond-locked', x + 52, y - 4, { s: .72, ax: .5, ay: .5 });
         text('Lv.' + p.lv, x, y + 102, { size: 22, align: 'center', weight: 900, stroke: '#3a1000', color: '#ffd76a' });
       }
       if (b.click && P.moved < 24) { if (lv < p.lv) say(`需要 Lv.${p.lv} 才能解鎖${p.name}`); else { audio.play('pond', .8); openModal(pondBoard(p)); } }
     });
-    // amusement park (locked)
-    const lx = 760, ly = 1100;
-    {
-      ui('lobby/button-locky-lightwheel', lx, ly, { s: .5, ax: .5, ay: .5, a: .7 });
-      if (btn('locky', 'lobby/button-locky', lx, ly, { s: .62 }).click) { audio.play('park', .8); openModal(lotteryModal()); }
-      ui('lobby/button-pond-locked', lx + 56, ly - 50, { s: .5, ax: .5, ay: .5 });
-    }
   },
   drawUI() {
-    const cx = Math.round(this.camX);
-    // top menu buttons
-    hudTop();
-    const menu = [['achievement', 'lobby/up-button-achievement'], ['ranking', 'lobby/up-button-ranking'], ['tackle', 'lobby/up-button-tackle'], ['gift', 'lobby/up-button-gift'], ['shop', 'lobby/up-button-shop']];
-    menu.forEach(([id, key], i) => {
-      const b = btn('m' + id, key, 74 + i * 143, 262, { s: .98 });
-      if (b.click) audio.play('top', .8);
-      if (b.click) {
+    const u = this.us();
+    // the translucent top bar spans the whole screen
+    img('lobby-topbg', 0, 0, { w: LW, h: 185 * u });
+    // the UI group, centred: everything below is in design-sheet pixels around x = 960
+    withView(Math.round(LW / 2 - 960 * u), 0, u, () => {
+      hudLobby();
+      const tap = b => b.click && P.moved < 24;
+      const menu = [['achievement', 'lobby/up-button-achievement'], ['ranking', 'lobby/up-button-ranking'], ['tackle', 'lobby/up-button-tackle'], ['gift', 'lobby/up-button-gift'], ['shop', 'lobby/up-button-shop']];
+      menu.forEach(([id, key], i) => {
+        if (!tap(btn('m' + id, key, 692 + i * 126, 250, { s: 1 }))) return;
+        audio.play('top', .8);
         if (id === 'shop') openModal(shopModal());
         else if (id === 'tackle') openModal(tackleModal());
         else if (id === 'ranking') openModal(leaderboardModal());
         else if (id === 'achievement') openModal(achievementModal());
         else if (socialOk()) openModal(friendsModal('list'));
-      }
+      });
+      [['invite', 'lobby/up-button-invite'], ['ad', 'lobby/up-button-AD']].forEach(([id, key], i) => {
+        if (!tap(btn('m' + id, key, 692 + i * 126, 390, { s: 1 }))) return;
+        audio.play('top', .8);
+        openModal(id === 'invite' && NET.mode === 'fire' && FB.user ? friendsModal('add') : id === 'invite' ? messageModal(NET.mode === 'fire' ? '邀請朋友一起釣：\n把遊戲網址傳給朋友，註冊帳號登入後，進到同一個池就會站在你旁邊！' : '邀請朋友一起釣：\n1. 點頁面右上角的「分享」\n2. 加入朋友，權限選「協作者」\n3. 朋友打開同一個連結，進到同一個池就會站在你旁邊！', '邀請好友') : messageModal('目前沒有廣告活動。', '廣告'));
+      });
+      // 任務
+      const mx = 1025, my = 520;
+      frame('missionfx', this.t * 15, mx, my, { s: .82 });
+      if (tap(btn('mmission', 'lobby/up-button-missions', mx, my, { s: 1 }))) { audio.play('top', .8); openModal(missionsModal()); }
+      const nOk = missionList().filter(x => x.ok).length;
+      if (nOk) { ctx.save(); ctx.fillStyle = '#ff4a3a'; ctx.beginPath(); ctx.arc(mx + 44, my - 46, 16, 0, Math.PI * 2); ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#fff'; ctx.stroke(); ctx.restore(); text(String(nOk), mx + 44, my - 45, { size: 18, weight: 900, align: 'center', color: '#fff' }); }
     });
-    const b2 = [['invite', 'lobby/up-button-invite'], ['ad', 'lobby/up-button-AD']];
-    b2.forEach(([id, key], i) => { if (btn('m' + id, key, 74 + i * 143, 392, { s: .98 }).click && (audio.play('top', .8), true)) openModal(id === 'invite' && NET.mode === 'fire' && FB.user ? friendsModal('add') : id === 'invite' ? messageModal(NET.mode === 'fire' ? '邀請朋友一起釣：\n把遊戲網址傳給朋友，註冊帳號登入後，進到同一個池就會站在你旁邊！' : '邀請朋友一起釣：\n1. 點頁面右上角的「分享」\n2. 加入朋友，權限選「協作者」\n3. 朋友打開同一個連結，進到同一個池就會站在你旁邊！', '邀請好友') : messageModal('目前沒有廣告活動。', '廣告')); });
-    // who's online
-    const n = NET.others().length;
-    const oc = { x: 20, y: 460, w: 230, h: 56 };
+    // sound toggle: top right when there is room beside the UI group, otherwise bottom right
+    const roomR = LW / 2 + (1320 - 960) * u < LW - 90;
+    const sr = roomR ? { x: LW - 84, y: 126 * u, w: 70, h: 54 } : { x: LW - 84, y: LH - 120, w: 70, h: 54 };
+    const sh = hit('snd', sr);
+    ctx.save(); roundRect(sr.x + 8, sr.y + 6, 54, 42, 12); ctx.fillStyle = 'rgba(4,40,60,.55)'; ctx.fill(); ctx.restore();
+    drawSpeaker(sr.x + 35, sr.y + 27, S.sound);
+    if (sh.click) audio.setSound(!S.sound);
+    // online / chat / friends / character, down the left edge
+    const n = NET.others().length, top = Math.max(470 * u, 200);
+    const oc = { x: 20, y: top, w: 230, h: 56 };
     ctx.save(); roundRect(oc.x, oc.y, oc.w, oc.h, 28); ctx.fillStyle = 'rgba(4,40,56,.72)'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = NET.connected ? '#7dffb0' : 'rgba(255,255,255,.35)'; ctx.stroke(); ctx.restore();
     ctx.save(); ctx.fillStyle = NET.connected ? '#45e08a' : '#9aa7ad'; ctx.beginPath(); ctx.arc(oc.x + 28, oc.y + 28, 8, 0, Math.PI * 2); ctx.fill(); ctx.restore();
     text(NET.room ? (NET.connected ? `線上釣友 ${n}` : '連線中…') : '單機模式', oc.x + 46, oc.y + 29, { size: 22, weight: 900, color: '#fff' });
     if (hit('online', oc).click) openModal(onlineModal());
-    // chat / friends / character pills
     const pill = (id, label, y, badge, fn) => {
       const r = { x: 20, y, w: 170, h: 52 }; const h = hit(id, r);
       ctx.save(); roundRect(r.x, r.y + (h.held ? 2 : 0), r.w, r.h, 26); ctx.fillStyle = 'rgba(4,40,56,.72)'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.stroke(); ctx.restore();
@@ -1561,22 +1595,49 @@ const lobbyScene = {
       if (badge) { ctx.save(); ctx.fillStyle = '#ff4a3a'; ctx.beginPath(); ctx.arc(r.x + r.w - 6, r.y + 6, 14, 0, Math.PI * 2); ctx.fill(); ctx.restore(); text(String(Math.min(99, badge)), r.x + r.w - 6, r.y + 7, { size: 16, weight: 900, align: 'center', color: '#fff' }); }
       if (h.click) fn();
     };
-    if (NET.canChat()) pill('lchat', '💬 聊天', 528, NET.unread, () => openModal(chatModal('world')));
-    if (NET.mode === 'fire') pill('lfr', '👥 好友', 590, Object.keys(NET.requests).length, () => { if (socialOk()) openModal(friendsModal(Object.keys(NET.requests).length ? 'req' : 'list')); });
-    pill('lchar', '🧑 換角色', NET.mode === 'fire' ? 652 : NET.canChat() ? 590 : 528, 0, () => openModal(charModal()));
-    const mxx = LW - 70;
-    frame('missionfx', this.t * 15, mxx, 410, { s: .82 });
-    if (btn('mmission', 'lobby/up-button-missions', mxx, 410, { s: .98 }).click) { audio.play('top', .8); openModal(missionsModal()); }
-    const nOk = missionList().filter(x => x.ok).length;
-    if (nOk) { ctx.save(); ctx.fillStyle = '#ff4a3a'; ctx.beginPath(); ctx.arc(mxx + 44, 366, 16, 0, Math.PI * 2); ctx.fill(); ctx.lineWidth = 3; ctx.strokeStyle = '#fff'; ctx.stroke(); ctx.restore(); text(String(nOk), mxx + 44, 367, { size: 18, weight: 900, align: 'center', color: '#fff' }); }
-    // scroll hint
-    const ms = this.ms(), rx = Math.max(1, 1440 * ms - LW), ry = 1280 * ms - LH;
-    ctx.save(); ctx.globalAlpha = .7;
-    if (ry > 1) { roundRect(LW - 22, 470, 10, 300, 5); ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fill(); roundRect(LW - 22, 470 + this.camY / ry * 220, 10, 80, 5); ctx.fillStyle = '#e8fff8'; ctx.fill(); }
-    if (1440 * ms - LW > 1) { const pct = this.camX / rx; roundRect(LW / 2 - 100, 1236, 200, 10, 5); ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fill(); roundRect(LW / 2 - 100 + pct * 140, 1236, 60, 10, 5); ctx.fillStyle = '#e8fff8'; ctx.fill(); }
-    ctx.restore();
+    let py = top + 68;
+    if (NET.canChat()) { pill('lchat', '💬 聊天', py, NET.unread, () => openModal(chatModal('world'))); py += 62; }
+    if (NET.mode === 'fire') { pill('lfr', '👥 好友', py, Object.keys(NET.requests).length, () => { if (socialOk()) openModal(friendsModal(Object.keys(NET.requests).length ? 'req' : 'list')); }); py += 62; }
+    pill('lchar', '🧑 換角色', py, 0, () => openModal(charModal()));
+    // where you are on the map (portrait: swipe left / right)
+    const ms = this.ms(), rx = LOBBY_W * ms - LW;
+    if (rx > 1) {
+      ctx.save(); ctx.globalAlpha = .75; roundRect(LW / 2 - 100, LH - 44, 200, 10, 5); ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fill();
+      roundRect(LW / 2 - 100 + this.camX / rx * 140, LH - 44, 60, 10, 5); ctx.fillStyle = '#e8fff8'; ctx.fill(); ctx.restore();
+      if (this.t < 4 && !S.lobbySwiped) text('← 左右滑動看地圖 →', LW / 2, LH - 74, { size: 24, align: 'center', weight: 900, color: '#fff', stroke: '#0b2f4a', a: clamp(4 - this.t, 0, 1) });
+    }
+    if (this.drag && Math.abs(P.x - this.drag.x) > 40 && !S.lobbySwiped) { S.lobbySwiped = true; save(); }
   },
 };
+
+// lobby top bar, laid out on the 1920x1080 design sheet (draw inside the centred UI view)
+function hudLobby() {
+  // portrait + name plate: the ring centre sits at (680, 95)
+  const px0 = 680 - 82, py0 = 95 - 81.5;
+  ui('top-UI/girl-head-panel', px0, py0, { s: 1 });
+  if (hit('acct', { x: px0, y: py0, w: 160, h: 165 }).click) openModal(NET.mode === 'fire' && FB.user ? accountModal() : charModal());
+  drawHead(S.char, px0 + 74, py0 + 82, 66);
+  const lv = LV(), e0 = epForLv(lv), e1 = epForLv(lv + 1), prog = clamp((S.ep - e0) / Math.max(1, e1 - e0), 0, 1);
+  const ccx = 680, ccy = 95, lvx = ccx - 94, lvy = ccy - 8.5;
+  ui('top-UI/girl-head-LV', lvx, lvy, { s: 1 });
+  const a0 = Math.PI * 120 / 180, a1 = a0 - prog * Math.PI * 126 / 180;
+  ctx.save(); ctx.beginPath(); ctx.moveTo(ccx, ccy); ctx.arc(ccx, ccy, 150, a1, a0); ctx.closePath(); ctx.clip();
+  ui('top-UI/girl-head-LV-blood', lvx + 46, lvy, { s: 1 }); ctx.restore();
+  text(String(lv), lvx + 34.5, lvy + 52.5, { size: 26, align: 'center', weight: 900, stroke: '#4a0a0a', color: '#ffe8a8' });
+  // name on the plate (tap to rename)
+  ctx.font = '900 30px "Noto Sans TC",sans-serif'; const w0 = ctx.measureText(S.name).width, nsz = w0 > 180 ? 30 * 180 / w0 : 30, nw = Math.min(180, w0);
+  text(S.name, 785, 62, { size: nsz, weight: 900, stroke: '#0b2f4a', color: '#fff' });
+  drawPencil(791 + nw, 62);
+  if (hit('rename', { x: 770, y: 30, w: nw + 50, h: 64 }).click) openModal(renameModal());
+  // 金幣 + 儲值，下一排 經驗 與 銀幣
+  ui('top-UI/gold_coin-panel', 1006, 22, { s: 1 });
+  text(fmt(S.gold), 1090, 62, { size: 30, weight: 900, color: '#fff', stroke: '#0a4a6a' });
+  if (btn('pay', 'top-UI/button-payment', 1272, 60, { s: 1 }).click) openModal(payModal());
+  ui('top-UI/EP-panel', 790, 98, { s: 1 });
+  text(fmt(S.ep) + ' EP', 872, 138, { size: 28, weight: 900, color: '#fff', stroke: '#0a4a6a' });
+  ui('top-UI/silver_coin-panel', 1056, 98, { s: 1 });
+  text(fmt(S.silver), 1140, 138, { size: 30, weight: 900, color: '#fff', stroke: '#0a4a6a' });
+}
 
 /* =====================================================================
    SCENE: pond (casting, waiting, fighting)
@@ -4063,7 +4124,7 @@ function loop(now) {
   bootEl.hidden = true;
   scene = titleScene; titleScene.enter();
   requestAnimationFrame(t => { last = t; loop(t); });
-  const first = ['img:lobby-map', 'img:lobby-bg-cloud1', 'img:lobby-bg-cloud2', 'img:lobby-bg-cloud3', 'anim:bird', 'anim:missionfx', ...A.man.atlas.map((_, i) => 'atlas:' + i), 'img:pond1-bg-water', 'img:pond1-bg-top', 'img:pond1-wood-grass', 'img:girl-idle', 'img:girl-fight', 'img:girl-shadow', ...charAssets(S.char), 'img:boy-head'];
+  const first = ['img:lobby-map2', 'img:lobby-topbg', 'img:lobby2-cloud1', 'img:lobby2-cloud2', 'img:lobby2-cloud3', 'img:lobby2-locky', 'img:lobby2-lightwheel', 'anim:bird', 'anim:missionfx', ...A.man.atlas.map((_, i) => 'atlas:' + i), 'img:pond1-bg-water', 'img:pond1-bg-top', 'img:pond1-wood-grass', 'img:girl-idle', 'img:girl-fight', 'img:girl-shadow', ...charAssets(S.char), 'img:boy-head'];
   await ensureProgress(first, v => titleScene.p = v);
   try { await document.fonts.ready; } catch (e) {}
   titleScene.ready = true;

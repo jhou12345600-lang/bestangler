@@ -303,3 +303,5 @@ print("files", len(os.listdir(OUT + "img")), "MB", round(tot / 1e6, 1), "ui atla
 
 # angler animation atlases (original girl frames per rod + rendered male frames) merge into assets.json
 os.system(f'python3 -I {os.path.dirname(os.path.abspath(__file__))}/angler_anim.py {OUT}')
+# 新版大廳（官方 2026-11）
+os.system(f'python3 -I {os.path.dirname(os.path.abspath(__file__))}/lobby2_assets.py {OUT}')
