@@ -3954,11 +3954,11 @@ function missionsModal() {
         plainBoard();
         text('任務', 360, 190, { size: 36, align: 'center', weight: 900, color: '#ffe36a', stroke: '#2f3a06' });
         list.slice(m.off, m.off + per).forEach((it, i) => {
-          const y = 332 + i * 98;   // cards stay inside the dark panel
-          ctx.save(); roundRect(96, y - 44, 528, 90, 14); ctx.fillStyle = it.ok ? 'rgba(255,230,120,.22)' : 'rgba(255,240,210,.12)'; ctx.fill(); ctx.restore();
-          text(it.title, 114, y - 20, { size: 23, weight: 900, color: it.soon ? 'rgba(255,255,255,.55)' : '#fff' });
-          text(it.desc, 114, y + 6, { size: 16, weight: 700, color: 'rgba(255,236,204,.85)' });
-          if (!it.soon) text('獎勵：' + rewardText(it.reward), 114, y + 30, { size: 17, weight: 900, color: '#ffd76a' });
+          const y = 325 + i * 88;   // six cards fit inside the dark panel (y 274-822)
+          ctx.save(); roundRect(96, y - 42, 528, 84, 14); ctx.fillStyle = it.ok ? 'rgba(255,230,120,.22)' : 'rgba(255,240,210,.12)'; ctx.fill(); ctx.restore();
+          text(it.title, 114, y - 19, { size: 22, weight: 900, color: it.soon ? 'rgba(255,255,255,.55)' : '#fff' });
+          text(it.desc, 114, y + 5, { size: 16, weight: 700, color: 'rgba(255,236,204,.85)' });
+          if (!it.soon) text('獎勵：' + rewardText(it.reward), 114, y + 27, { size: 17, weight: 900, color: '#ffd76a' });
           if (it.ok) { if (textBtn('ms' + i, '領取', 566, y, 96, 52, { layer: 1, size: 24, colors: ['#7fe08a', '#2b9a3c'], edge: '#145b20' }).click) claimMission(it); }
           else if (!it.soon) text(`${it.prog[0] % 1 ? it.prog[0].toFixed(1) : it.prog[0]}/${it.prog[1]}`, 610, y, { size: 22, weight: 900, align: 'right', color: '#bdf6ff' });
         });
