@@ -249,7 +249,7 @@ const HOOK_RATE = .5;           // 震動三秒內揚竿的中魚機率（官方
 const BITE_WINDOW = 3;          // 秒
 // 斷線：P + F > S（官方公式）。為了降低斷線機率，多給 30% 的餘裕，且要持續超過 1.2 秒才斷
 const BREAK_MARGIN = 1.3, BREAK_GRACE = 1.2;
-const FIGHT_DRAIN = 10;          // 搏魚時間公式（官方）：秒 = 體力值 U / 10
+const FIGHT_DRAIN = 100;         // 搏魚時間公式（官方）：秒 = 體力值 U / 100
 const WEAK_SNAP = .15;          // 生命值剩 1~5 的舊線，在搏魚中自己斷掉的機率
 // 成就（稱號）by level
 const TITLES = [[1, '初級新手'], [3, '中級老手'], [6, '進階高手'], [10, '職人初段'], [20, '職人二段'], [30, '職人三段'], [40, '名人四段'], [50, '名人五段'], [60, '逹人六段'], [70, '鐵人七段'], [80, '聖手八段'], [90, '神手九段'], [99, '宗師十段']];
@@ -1965,7 +1965,7 @@ const pond = {
     this.line.T = ten; this.line.Td = lerp(this.line.Td, ten, clamp(dt * 6, 0, 1));
     if (Pline + Feff > S_ * BREAK_MARGIN) { this.line.brk += dt; if (this.line.brk > BREAK_GRACE) return this.lose('broken'); } else this.line.brk = Math.max(0, this.line.brk - dt);
     if (F.weakAt !== null && F.t > F.weakAt) return this.lose('broken');
-    // 體力值：官方公式 搏魚秒數 = 體力值 / 10 → 收線時（P > 0）每秒扣 10，放線時不扣
+    // 體力值：官方公式 搏魚秒數 = 體力值 / 100 → 沒在放線時每秒扣 100，放線時不扣
     F.U = Math.max(0, F.U - (this.N >= 0 ? FIGHT_DRAIN : 0) * dt);
     F.life = F.U / F.U0;
     // line length: the fish takes line, reeling takes it back

@@ -93,7 +93,7 @@
 | 裝備-浮標 | `FLOATS`（`sens` 敏感度） |
 | 裝備-魚餌 | `BAITS`（`rates` 釣獲率 %、`rods` 適用釣竿）；一包份數是 `BAIT_PACK` |
 | 斷線 | 官方公式 P + F > S。P 依釣線換算：收線刻度到頂 = 用到該線承受力的 80%，所以斷線風險取決於魚力和釣線的比例。另有 `BREAK_MARGIN`（1.3，承受力餘裕）、`BREAK_GRACE`（1.2 秒）、`WEAK_SNAP`（舊線自斷機率 0.15） |
-| 搏魚時間 | 官方公式 秒 = 體力值 / 10（`FIGHT_DRAIN`）：沒在放線時每秒扣 10；體力歸零後約 2 秒拉到岸邊 |
+| 搏魚時間 | 官方公式 秒 = 體力值 / 100（`FIGHT_DRAIN`）：沒在放線時每秒扣 100；體力歸零後約 2 秒拉到岸邊 |
 | 揚竿成功率 | `HOOK_RATE`（目前 0.5；官方企劃為 0.3）、`BITE_WINDOW`（3 秒） |
 | 搏魚公式 | `pond.updateFight()`、`pond.fishForce()`（魚力值波幅）、`pond.readControls()`（收線光條） |
 | 任務 | `missionList()` |
