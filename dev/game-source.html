@@ -1555,7 +1555,7 @@ const lobbyScene = {
         openModal(id === 'invite' && NET.mode === 'fire' && FB.user ? friendsModal('add') : id === 'invite' ? messageModal(NET.mode === 'fire' ? '邀請朋友一起釣：\n把遊戲網址傳給朋友，註冊帳號登入後，進到同一個池就會站在你旁邊！' : '邀請朋友一起釣：\n1. 點頁面右上角的「分享」\n2. 加入朋友，權限選「協作者」\n3. 朋友打開同一個連結，進到同一個池就會站在你旁邊！', '邀請好友') : messageModal('目前沒有廣告活動。', '廣告'));
       });
       // 任務
-      const mx = 1025, my = 520;
+      const mx = 1216, my = 410;   // 官方設計稿位置：遊樂場右上、競技池左邊，不會蓋到遊樂場
       frame('missionfx', this.t * 15, mx, my, { s: .82 });
       if (tap(btn('mmission', 'lobby/up-button-missions', mx, my, { s: 1 }))) { audio.play('top', .8); openModal(missionsModal()); }
       const nOk = missionList().filter(x => x.ok).length;
