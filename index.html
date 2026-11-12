@@ -1227,11 +1227,11 @@ function hudTop(o = {}) {
   // currencies
   const px = 360;
   ui('top-UI/gold_coin-panel', px, y0 + 2, { s: .78 });
-  text(fmt(S.gold), px + 70, y0 + 2 + 32, { size: 24, weight: 900, color: '#fff', stroke: '#0a4a6a' });
+  text(fmt(o.gold ?? S.gold), px + 70, y0 + 2 + 32, { size: 24, weight: 900, color: '#fff', stroke: '#0a4a6a' });
   ui('top-UI/silver_coin-panel', px, y0 + 66, { s: .78 });
-  text(fmt(S.silver), px + 70, y0 + 66 + 32, { size: 24, weight: 900, color: '#fff', stroke: '#0a4a6a' });
+  text(fmt(o.silver ?? S.silver), px + 70, y0 + 66 + 32, { size: 24, weight: 900, color: '#fff', stroke: '#0a4a6a' });
   ui('top-UI/EP-panel', px - 4, y0 + 130, { s: .62 });
-  text(fmt(S.ep) + ' EP', px + 50, y0 + 130 + 25, { size: 19, weight: 900, color: '#fff', stroke: '#0a4a6a' });
+  text(fmt(o.ep ?? S.ep) + ' EP', px + 50, y0 + 130 + 25, { size: 19, weight: 900, color: '#fff', stroke: '#0a4a6a' });
   // 儲值「+」緊接在金幣欄右邊
   if (btn('pay', 'top-UI/button-payment', px + 255 * .78 + 30, y0 + 2 + 31, { s: .72, layer: o.layer ?? 0 }).click) openModal(payModal());
   // sound toggle
@@ -3121,9 +3121,15 @@ function drawEye(x, y) {
    ===================================================================== */
 const catchScene = {
   r: null, t: 0, done: false,
-  enter(r) { this.r = r; this.t = 0; this.done = false; audio.ambience(.06); audio.bgm('result'); this._fw = audio.play('fireworks', .45); },
+  enter(r) { this.r = r; this.t = 0; this.done = false; this.burst = null; audio.ambience(.06); audio.bgm('result'); this._fw = audio.play('fireworks', .45); },
   exit() { audio.stopSrc(this._fw, .4); this._fw = null; },
-  update(dt) { this.t += dt; },
+  update(dt) {
+    this.t += dt;
+    const B = this.burst; if (!B) return;
+    B.t += dt;
+    for (const c of B.coins) if (!c.got && B.t >= c.t0 + c.dur) { c.got = true; B.disp[c.k] += c.v; if (Math.random() < .5) audio.tone(1500 + Math.random() * 600, .05, 'triangle', .05); }
+    if (B.coins.every(c => c.got) && B.t > B.end) { this.burst = null; B.done(); }
+  },
   draw() {
     const r = this.r, t = this.t;
     // scenery: the 720-wide art in the middle, mirrored copies to the sides on wide screens
@@ -3134,7 +3140,26 @@ const catchScene = {
     across((x, f) => frame('catchwater', t * 12, x + (f ? 720 : 0), 520, { ax: 0, ay: 0, flip: f }));
     across((x, f) => img('catch-BG-shore', x, 250, { w: 721, flip: f }));
     across((x, f) => img('catch-UI-down-board', x, LH - 351, { w: 721, flip: f }));
-    withView(PX, 0, 1, () => this.drawPanel(r, t));
+    withView(PX, 0, 1, () => {
+      this.drawPanel(r, t);
+      const B = this.burst;
+      hudTop(B ? { gold: Math.round(B.disp.gold), silver: Math.round(B.disp.silver), ep: B.ep } : {});
+      if (B) this.drawCoins(B);
+    });
+  },
+  // 爆金幣：金幣/銀幣從「售出」按鈕噴出，再湧進最上面的金幣/銀幣欄（官方 coins 圖示）
+  drawCoins(B) {
+    for (const c of B.coins) {
+      if (c.got) continue;
+      const u = (B.t - c.t0) / c.dur; if (u < 0) continue;
+      const k = u * u * (3 - 2 * u), e = u * u;            // burst out fast, then sweep in
+      const q = 1 - k, x = q * q * c.p0[0] + 2 * q * k * c.cp[0] + k * k * c.p1[0];
+      const y = (1 - e) * (1 - e) * c.p0[1] + 2 * (1 - e) * e * c.cp[1] + e * e * c.p1[1];
+      const sp = Math.cos(B.t * c.spin + c.ph);
+      ctx.save(); ctx.translate(x, y); ctx.scale(Math.max(.2, Math.abs(sp)), 1);
+      ui(c.k === 'gold' ? 'lobby/shop/icon-gold' : 'lobby/shop/icon-silver', 0, 0, { ax: .5, ay: .5, s: lerp(1.35, .8, u) });
+      ctx.restore();
+    }
   },
   drawPanel(r, t) {
     img('catch-BG-boat', -10, 690 + Math.sin(t * 1.3) * 4);
@@ -3158,7 +3183,7 @@ const catchScene = {
       frame('hang-' + r.sp, t * 10, jaw[0], jaw[1], { axp: hm.ax, ayp: hm.ay, s });
     }
     // right board (fields are painted into the board art; values go inside them)
-    const bx = 360, by = 120;
+    const bx = 360, by = 190;   // below the top currency bars
     img('catch-UI-right-board', bx, by, { s: 1 });
     const info = A.man.meta.species[r.sp];
     if (info.label) ui(info.label, bx + 175, by + 45, { ax: .5, ay: .5, s: .95 });
@@ -3170,8 +3195,7 @@ const catchScene = {
       ui(key, bx + 55 + i * 60, by + 135 - (big ? 6 : 0), { ax: .5, ay: .5, s: pop * (big ? 1 : .86) });
     }
     img('win-lightwheel', bx + 175, by + 245, { ax: .5, ay: .5, s: .62, a: .55 });
-    img('catch-win', bx + 175, by + 245, { ax: .5, ay: .5, s: .85 });
-    ui(info.icon, bx + 175, by + 245, { ax: .5, ay: .5, s: .9 });
+    img('catch-win', bx + 175, by + 245, { ax: .5, ay: .5, s: .85 });   // 官方：獎章裡不放魚
     const val = (v, x, y, sz = 26) => text(v, bx + x, by + y, { size: sz, weight: 900, align: 'center', color: '#3a1a06' });
     val(String(r.len), 180, 368); val(String(r.kg), 180, 430);
     val('+' + fmt(r.gold), 200, 494); val('+' + fmt(r.silver), 200, 561); val('+' + fmt(r.ep) + ' EP', 200, 629);
@@ -3188,8 +3212,17 @@ const catchScene = {
   },
   finish() {
     const r = this.r; this.done = true;
-    const lv0 = LV();
+    const lv0 = LV(), g0 = S.gold, s0 = S.silver;
     S.silver += r.silver; S.gold += r.gold; addEp(r.ep); if (!audio.play('coins', .8)) audio.coin();
+    // coin burst: the counters at the top tick up as the coins land
+    const from = [360 + 180, 190 + 830], tgt = { gold: [391, 43], silver: [391, 107] }, coins = [];
+    const add = (k, total, n) => { for (let i = 0; i < n; i++) {
+      const p0 = [from[0] + rnd(-30, 30), from[1] + rnd(-12, 12)];
+      coins.push({ k, v: total / n, p0, p1: tgt[k], cp: [p0[0] + rnd(-260, 120), p0[1] - rnd(260, 520)], t0: i * .045 + rnd(0, .08), dur: rnd(.75, 1.05), spin: rnd(8, 14), ph: rnd(0, 6) });
+    } };
+    if (r.gold > 0) add('gold', r.gold, clamp(r.gold, 4, 10));
+    if (r.silver > 0) add('silver', r.silver, clamp(Math.round(r.silver / 4), 8, 22));
+    this.burst = { t: 0, coins, end: .45, disp: { gold: g0, silver: s0 }, ep: S.ep, done: () => this.leave(r, lv0) };
     S.records[r.sp] = r.record; S.totalCaught++;
     S.today.list.push({ sp: r.sp, len: r.len, stars: r.stars, score: r.silver, sold: true });
     // stats for missions
@@ -3204,6 +3237,9 @@ const catchScene = {
     NET.checkRecord(r);
     NET.emit('catch', { n: S.name, sp: r.sp, len: r.len, stars: r.stars, p: r.pond });
     NET.saveProfile();
+    if (!coins.length) { this.burst = null; this.leave(r, lv0); }
+  },
+  leave(r, lv0) {
     const lv1 = LV();
     go(pond, PONDS.find(p => p.id === r.pond));
     if (lv1 > lv0) setTimeout(() => openModal(messageModal(`恭喜升級！\n目前等級 Lv.${lv1}「${title()}」` + (PONDS.find(p => p.lv === lv1) ? `\n已開放「${PONDS.find(p => p.lv === lv1).name}」！` : ''), '升級')), 700);
