@@ -12,5 +12,8 @@ def single(key, src, q=88):
 for key, src in [('p1-top', 'bg-top.png'), ('p1-floor', 'floor.png'), ('p1-rail', 'Wooden railing.png'), ('p1-rail-broken', 'Wooden railing brogen.png'),
                  ('p1-wood', 'wood.png'), ('p1-grass', 'grass.png'), ('p1-grass2', 'grass2.png')]:
     single(key, src)
+# water surface: fully opaque, the shader mirror-tiles it every 720 px
+im = Image.open(R + 'bg-water.png').convert('RGB'); im.save(OUT + 'img/p1-water.webp', 'WEBP', quality=88, method=5)
+man['img']['p1-water'] = {'f': 'img/p1-water.webp', 'w': im.width, 'h': im.height, 's': 1}
 json.dump(man, open(OUT + 'assets.json', 'w'), ensure_ascii=False, separators=(',', ':'))
 print('ok')

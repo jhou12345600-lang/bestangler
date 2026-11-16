@@ -1783,7 +1783,7 @@ const pond = {
     if (this.newP1()) {
       const top = A.tex['img:p1-top'], rc = document.createElement('canvas'); rc.width = 1500; rc.height = 240;
       rc.getContext('2d').drawImage(top, 0, 0, 1500, 240, 0, 0, 1500, 240);
-      water.setScene(A.tex['img:' + p.bgKey + '-bg-water'], rc, { rw: 1500, mir: 0 });
+      water.setScene(A.tex['img:p1-water'] || A.tex['img:' + p.bgKey + '-bg-water'], rc, { rw: 1500, mir: 0 });
     } else water.setScene(A.tex['img:' + p.bgKey + '-bg-water'], A.tex['img:' + p.bgKey + '-bg-top']);
     water.rip = [];
     glc.style.visibility = 'visible';
@@ -3353,7 +3353,7 @@ async function enterPond(p, paid) {
   loading.show('前往' + p.name + '…');
   const sp = p.fish, ak = RODS[S.equip.rod] && angKey(S.char, RODS[S.equip.rod].code);
   await ensureProgress([...(ak ? ['img:' + ak] : []), `img:${p.bgKey}-bg-water`, `img:${p.bgKey}-bg-top`, `img:${p.bgKey}-wood-grass`, ...charAssets(S.char), 'img:girl-idle', 'img:girl-fight', 'img:girl-shadow', 'anim:splash',
-    ...(p.id === 1 ? ['img:pond-cloud1', 'img:pond-cloud2', 'img:pond-cloud3', 'img:p1-top', 'img:p1-floor', 'img:p1-rail', 'img:p1-rail-broken', 'img:p1-wood', 'img:p1-grass', 'img:p1-grass2'] : [`img:${p.bgKey}-fog`]), ...sp.map(k => 'anim:fight-' + k)], v => loading.p = v);
+    ...(p.id === 1 ? ['img:pond-cloud1', 'img:pond-cloud2', 'img:pond-cloud3', 'img:p1-top', 'img:p1-water', 'img:p1-floor', 'img:p1-rail', 'img:p1-rail-broken', 'img:p1-wood', 'img:p1-grass', 'img:p1-grass2'] : [`img:${p.bgKey}-fog`]), ...sp.map(k => 'anim:fight-' + k)], v => loading.p = v);
   loading.hide();
   go(pond, p);
 }
