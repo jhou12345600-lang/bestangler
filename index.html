@@ -1008,7 +1008,7 @@ precision mediump float;
 #endif
 varying vec2 v;
 uniform sampler2D tex; uniform sampler2D refl; uniform sampler2D uw;
-uniform float t; uniform vec2 res; uniform vec4 rip[16]; uniform vec3 sun; uniform float calm; uniform float bright; uniform float hz; uniform float cam; uniform float cx;
+uniform float t; uniform vec2 res; uniform vec4 rip[16]; uniform vec3 sun; uniform float calm; uniform float bright; uniform float hz; uniform float cam; uniform float cx; uniform float rw; uniform float rmir;
 float mir(float u){ float m = mod(u, 2.); return m < 1. ? m : 2. - m; }   // mirrored tiling for the wide pond
 vec3 m289(vec3 x){return x-floor(x*(1./289.))*289.;} vec2 m289(vec2 x){return x-floor(x*(1./289.))*289.;}
 vec3 perm(vec3 x){return m289(((x*34.)+1.)*x);}
@@ -1076,7 +1076,8 @@ void main(){
   col += vec3(.75,.95,.85) * caustic(g*.022) * smoothstep(.45, 1., d) * .16;
   // live reflection of sky and shore, strongest near the horizon (Fresnel)
   float sy = (2.*hz - (240. + px.y)) / 240.;
-  vec3 rc = texture2D(refl, vec2(clamp(mir((px.x + cam*.1)/720. + off.x*2.4), .002, .998), clamp(sy + off.y*5., .01, .99))).rgb;
+  float ru = (px.x + cam*.1)/rw + off.x*2.4*720./rw;
+  vec3 rc = texture2D(refl, vec2(clamp(rmir > .5 ? mir(ru) : fract(ru), .002, .998), clamp(sy + off.y*5., .01, .99))).rgb;
   // Fresnel from the real viewing angle: grazing far away, steeper at the dock, tilted by every wave
   vec3 N = normalize(vec3(n*1.6, 1.));
   float cosT = clamp(mix(.1, .62, pow(d, .7)) - N.y*.55 + abs(N.x)*.1, .02, 1.);
@@ -1102,7 +1103,7 @@ void main(){
       this.buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
       const loc = gl.getAttribLocation(pr, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-      for (const n of ['tex', 'refl', 'uw', 't', 'res', 'rip', 'sun', 'calm', 'bright', 'hz', 'cam', 'cx']) this.u[n] = gl.getUniformLocation(pr, n);
+      for (const n of ['tex', 'refl', 'uw', 't', 'res', 'rip', 'sun', 'calm', 'bright', 'hz', 'cam', 'cx', 'rw', 'rmir']) this.u[n] = gl.getUniformLocation(pr, n);
       gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
       this.gl = gl; this.prog = pr; this.ok = true;
     } catch (e) { console.warn('water shader off', e); this.ok = false; }
@@ -1121,7 +1122,9 @@ void main(){
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, src);
     this.src[name] = src;
   },
-  setScene(waterImg, topImg) { this.upload('tex', waterImg, 0); this.upload('refl', topImg, 1); this.upload('uw', UW, 2); },
+  reflW: 720, reflMir: 1,
+  // reflection source: tile width on screen and whether the tiles are mirrored (old ponds) or repeated (new 休閒池)
+  setScene(waterImg, topImg, o = {}) { this.reflW = o.rw || 720; this.reflMir = o.mir ?? 1; this.upload('tex', waterImg, 0); this.upload('refl', topImg, 1); this.upload('uw', UW, 2); },
   cam: 0,                 // camera pan in px at the dock; ripples are stored in world px so they stay put while panning
   ripple(x, y, amp = 1) { // logical screen coords
     this.rip.push({ x: x + this.cam * depthF(y), y: y - WATER_Y, age: 0, amp });
@@ -1144,7 +1147,7 @@ void main(){
     gl.uniform1f(this.u.t, t); gl.uniform2f(this.u.res, LW, LH - WATER_Y); gl.uniform1f(this.u.hz, HZ);
     const arr = new Float32Array(64);
     this.rip.forEach((r, i) => { arr.set([r.x - this.cam * depthF(r.y + WATER_Y), r.y, r.age, r.amp], i * 4); });
-    gl.uniform1f(this.u.cam, this.cam); gl.uniform1f(this.u.cx, LW / 2);
+    gl.uniform1f(this.u.cam, this.cam); gl.uniform1f(this.u.cx, LW / 2); gl.uniform1f(this.u.rw, this.reflW); gl.uniform1f(this.u.rmir, this.reflMir);
     gl.uniform4fv(this.u.rip, arr);
     gl.uniform3f(this.u.sun, opts.sunX ?? 470, 0, opts.sun ?? .75);
     gl.uniform1f(this.u.calm, opts.calm ?? 1);
@@ -1790,7 +1793,11 @@ const pond = {
     ensure(sp.flatMap(k => ['anim:fight-' + k, 'anim:land-' + k, 'anim:under-' + k]).concat(['anim:splash', 'anim:underwave', 'img:uw-bg', 'img:fight-bed', 'img:fight-surface', 'anim:angry', 'img:victory', 'img:victory-light']));
     ensure(charAssets(S.char).concat(['img:boy-catch', 'img:boy-head']));
     ensure(sp.flatMap(k => ['anim:hang-' + k]).concat(['anim:catchgirl', 'anim:catchwater', 'anim:fireworks', 'img:catch-BG-sky', 'img:catch-BG-water', 'img:catch-BG-shore', 'img:catch-BG-boat', 'img:catch-BG-cloud1', 'img:catch-BG-cloud2', 'img:catch-UI-right-board', 'img:catch-UI-down-board', 'img:win-lightwheel', 'img:catch-win']));
-    water.setScene(A.tex['img:' + p.bgKey + '-bg-water'], A.tex['img:' + p.bgKey + '-bg-top']);
+    if (this.newP1()) {
+      const top = A.tex['img:p1-top'], rc = document.createElement('canvas'); rc.width = 1500; rc.height = 240;
+      rc.getContext('2d').drawImage(top, 0, 0, 1500, 240, 0, 0, 1500, 240);
+      water.setScene(A.tex['img:' + p.bgKey + '-bg-water'], rc, { rw: 1500, mir: 0 });
+    } else water.setScene(A.tex['img:' + p.bgKey + '-bg-water'], A.tex['img:' + p.bgKey + '-bg-top']);
     water.rip = [];
     glc.style.visibility = 'visible';
   },
@@ -1853,6 +1860,32 @@ const pond = {
     CAMX = this.camW - this.wx; water.cam = this.camW * 300;
   },
   // a tile of a background, mirrored side by side so the pond goes on along the dock
+  // 休閒池 (官方 2026-11 新版美術)
+  newP1() { return this.p && this.p.id === 1 && !!A.tex['img:p1-top'] && !!A.tex['img:p1-floor']; },
+  // repeat an image at its own size along x (no stretching, no mirroring)
+  strip(key, y, shift, a) {
+    const m = A.man.img[key]; if (!m) return; const w = m.w;
+    for (let i = Math.floor(shift / w); i * w - shift < LW; i++) img(key, Math.floor(i * w - shift), y, { w: w + 1, h: m.h, a });
+  },
+  // dock front: fences, posts and grass laid out like the official sample, repeating every 3600 px of dock
+  drawP1Dock(camPx) {
+    const P1 = 3600, base = LH - 92, x0 = camPx - LW / 2;
+    const items = [
+      ['p1-grass2', 676], ['p1-grass2', 1856], ['p1-grass2', 2930],
+      ['p1-wood', 193], ['p1-wood', 492], ['p1-rail', 730], ['p1-rail-broken', 1094], ['p1-wood', 1676],
+      ['p1-rail-broken', 2225], ['p1-rail', 2802], ['p1-rail', 3216],
+      ['p1-grass', 63], ['p1-grass', 1440], ['p1-grass', 2180], ['p1-grass', 2640], ['p1-grass', 3420]];
+    for (const [k, wx] of items) {
+      const m = A.man.img[k]; if (!m) continue;
+      const g = k.startsWith('p1-grass'), bottom = base + (g ? 14 : k === 'p1-wood' ? 8 : 10);
+      for (let j = Math.ceil((x0 - wx - m.w) / P1); ; j++) {
+        const x = wx + j * P1 - x0 - (k === 'p1-wood' || g ? m.w / 2 : 0);
+        if (x > LW) break;
+        img(k, Math.round(x), Math.round(bottom - m.h));
+      }
+    }
+    this.strip('p1-floor', LH - 100, camPx);
+  },
   tiled(key, y, h, shift, a) {
     const m = A.man.img[key]; if (!m) return;
     const w = LW; for (let i = Math.floor(shift / w); i * w - shift < LW; i++) img(key, Math.floor(i * w - shift), y, { w: w + 1, h, flip: (i & 1) !== 0, a });
@@ -2283,8 +2316,9 @@ const pond = {
     const wrote = water.render(this.t, DTF, { sunX: LW / 2 + 110 + Math.sin(this.t * .05) * 30, sun: .7, calm: this.st === 'fight' ? 1.15 : 1 });
     const camPx = this.camW * 300;
     if (!wrote) this.tiled(p.bgKey + '-bg-water', WATER_Y, LH - WATER_Y, camPx * .6);
+    const p1 = this.newP1();
     // sky & far shore (far away: they slide only a little as the camera pans)
-    this.tiled(p.bgKey + '-bg-top', 0, 240, camPx * .1);
+    if (p1) this.strip('p1-top', 0, camPx * .1); else this.tiled(p.bgKey + '-bg-top', 0, 240, camPx * .1);
     if (p.id === 1) ['pond-cloud1', 'pond-cloud2', 'pond-cloud3'].forEach((k, i) => { const W2 = LW + 260, x = ((((this.t * (4 + i * 2) + i * 260 - camPx * .05) % W2) + W2) % W2) - 200; img(k, x, 8 + i * 22, { a: .9, s: .8 }); });
     const fogM = A.man.img[p.bgKey + '-fog'];
     if (fogM) this.tiled(p.bgKey + '-fog', 120 + Math.sin(this.t * .2) * 6, fogM.h * LW / fogM.w, camPx * .1, .35 + .1 * Math.sin(this.t * .3));
@@ -2307,7 +2341,8 @@ const pond = {
     if (this.float && (this.st === 'wait')) this.drawFloat();
     // dock / foreground
     const wg = A.man.img[p.bgKey + '-wood-grass'];
-    if (wg) this.tiled(p.bgKey + '-wood-grass', LH - wg.h * LW / wg.w, wg.h * LW / wg.w, camPx);
+    if (p1) this.drawP1Dock(camPx);
+    else if (wg) this.tiled(p.bgKey + '-wood-grass', LH - wg.h * LW / wg.w, wg.h * LW / wg.w, camPx);
     // landing fish swings in from the water behind the angler's shoulder
     if (this.st === 'land') this.drawLandingFish();
     // friends beside you, then you
@@ -3316,7 +3351,7 @@ async function enterPond(p, paid) {
   loading.show('前往' + p.name + '…');
   const sp = p.fish, ak = RODS[S.equip.rod] && angKey(S.char, RODS[S.equip.rod].code);
   await ensureProgress([...(ak ? ['img:' + ak] : []), `img:${p.bgKey}-bg-water`, `img:${p.bgKey}-bg-top`, `img:${p.bgKey}-wood-grass`, ...charAssets(S.char), 'img:girl-idle', 'img:girl-fight', 'img:girl-shadow', 'anim:splash',
-    ...(p.id === 1 ? ['img:pond-cloud1', 'img:pond-cloud2', 'img:pond-cloud3'] : [`img:${p.bgKey}-fog`]), ...sp.map(k => 'anim:fight-' + k)], v => loading.p = v);
+    ...(p.id === 1 ? ['img:pond-cloud1', 'img:pond-cloud2', 'img:pond-cloud3', 'img:p1-top', 'img:p1-floor', 'img:p1-rail', 'img:p1-rail-broken', 'img:p1-wood', 'img:p1-grass', 'img:p1-grass2'] : [`img:${p.bgKey}-fog`]), ...sp.map(k => 'anim:fight-' + k)], v => loading.p = v);
   loading.hide();
   go(pond, p);
 }

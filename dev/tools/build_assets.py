@@ -305,3 +305,5 @@ print("files", len(os.listdir(OUT + "img")), "MB", round(tot / 1e6, 1), "ui atla
 os.system(f'python3 -I {os.path.dirname(os.path.abspath(__file__))}/angler_anim.py {OUT}')
 # 新版大廳（官方 2026-11）
 os.system(f'python3 -I {os.path.dirname(os.path.abspath(__file__))}/lobby2_assets.py {OUT}')
+# 休閒池新版（官方 2026-11）
+os.system(f'python3 -I {os.path.dirname(os.path.abspath(__file__))}/pond1v2_assets.py {OUT}')
