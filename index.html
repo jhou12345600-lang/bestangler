@@ -3220,7 +3220,7 @@ const catchScene = {
     const gx = -208;
     let jaw = [gx + 290, 456];
     if (boy) {
-      const bm = A.man.meta.boy, tip = [100, 470], bob = Math.sin(t * 1.6) * 2;
+      const bm = A.man.meta.boy, tip = [Math.max(100, bm.catchTip[0] + 4), 470], bob = Math.sin(t * 1.6) * 2;
       img('boy-catch', tip[0] - bm.catchTip[0], tip[1] - bm.catchTip[1] + bob, { w: bm.catchW, h: bm.catchH });
       jaw = [tip[0], tip[1] + bob];
     } else if (m) {

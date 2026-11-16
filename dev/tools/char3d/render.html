@@ -119,6 +119,19 @@ window.addGripper = () => {
   g.position.copy(hp); g.position.y -= 2; g.position.z += 4;
   R.model.add(g); R.model.updateMatrixWorld(true); hand.attach(g); R.grip = g;
 };
+// put the gripper's handle through the closed right fist: centre between the knuckles and the curled middle finger,
+// axis along the knuckle line (blended toward vertical so the fish hangs straight)
+window.gripInFist = (blend = .5, fa = .5, ha = 0) => {
+  addGripper(); const T = THREE, g = R.grip, w = n => { const v = new T.Vector3(); R.bones[n].getWorldPosition(v); return v; };
+  R.model.updateMatrixWorld(true); R.model.attach(g);
+  const k1 = w('R_Finger1'), k4 = w('R_Finger4'), m = w('R_Finger21');
+  let up = k1.clone().sub(k4).normalize(); if (up.y < 0) up.negate();
+  const inv = new T.Matrix4().copy(R.model.matrixWorld).invert(), q = new T.Quaternion().setFromRotationMatrix(inv);
+  const upL = up.clone().applyQuaternion(q).lerp(new T.Vector3(0, 1, 0), blend).normalize();
+  const km = k1.clone().add(k4).multiplyScalar(.5), c = km.clone().add(m.clone().sub(km).multiplyScalar(fa)).add(w('R_Hand').sub(km).multiplyScalar(ha)).applyMatrix4(inv);
+  g.quaternion.setFromUnitVectors(new T.Vector3(0, 1, 0), upL); g.position.copy(c).add(upL.clone().multiplyScalar(-2));
+  R.model.updateMatrixWorld(true); R.bones.R_Hand.attach(g);
+};
 window.objScreen = (obj, w, h) => { const v = new THREE.Vector3(); obj.getWorldPosition(v); v.project(R.cam); return [(v.x * 0.5 + 0.5) * w, (-v.y * 0.5 + 0.5) * h]; };
 window.resetPose = () => { for (const b of Object.values(R.bones)) if (b.userData.q0) b.quaternion.copy(b.userData.q0); R.model.updateMatrixWorld(true); };
 

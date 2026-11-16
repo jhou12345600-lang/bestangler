@@ -307,3 +307,4 @@ os.system(f'python3 -I {os.path.dirname(os.path.abspath(__file__))}/angler_anim.
 os.system(f'python3 -I {os.path.dirname(os.path.abspath(__file__))}/lobby2_assets.py {OUT}')
 # 休閒池新版（官方 2026-11）
 os.system(f'python3 -I {os.path.dirname(os.path.abspath(__file__))}/pond1v2_assets.py {OUT}')
+os.system("python3 -I /home/claude/tools/boy_catch_update.py " + OUT)

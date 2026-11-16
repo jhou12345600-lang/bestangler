@@ -21,6 +21,8 @@ POSES = {
     'idle': {'R_UpperArm': [0, -38, 8], 'R_Forearm': [0, -25, -25], 'L_UpperArm': [0, 38, 4], 'L_Forearm': [0, 10, -10], **GRIP, **LREL},
     'fight': {'R_UpperArm': [0, 20, -20], 'R_Forearm': [0, 85, 0], 'L_UpperArm': [0, 32, -6], 'L_Forearm': [0, 30, -25], 'Spine1': [0, 0, 3], **GRIP, **LREL},
 }
+# catch screen: right fist up in front of the chest holding the gripper, left arm hanging at the side (not behind the back)
+CATCH_POSE = {'R_UpperArm': [-5, -15, -55], 'R_Forearm': [0, -20, -65], 'L_UpperArm': [0, 30, -15], 'L_Forearm': [0, 0, -8], **GRIP}
 import os
 MODEL = os.environ.get('MODEL', 'm10/Male_Adult_10.fbx'); PREFIX = os.environ.get('PREFIX', 'm024')
 HAT = None   # the young angler goes bare-headed (the old one wore {'dy': -5.5, 'dz': -0.5, 'tilt': -4, 'scale': 1.17})
@@ -68,9 +70,8 @@ with sync_playwright() as p:
     meta['backBox'] = [bx[2] - bx[0], bx[3] - bx[1]]
     # ---- front view holding the gripper (catch screen)
     pg.evaluate('resetPose()')
-    pg.evaluate('p => pose(p)', {'R_UpperArm': [0, -10, -55], 'R_Forearm': [0, 0, -95], 'R_Hand': [0, 0, 0],
-                                  'L_UpperArm': [0, 52, 18], 'L_Forearm': [0, 0, 75], 'L_Hand': [0, 25, 0], **GRIP})
-    pg.evaluate('addGripper()')
+    pg.evaluate('p => pose(p)', CATCH_POSE)
+    pg.evaluate('gripInFist(.5, .2, .15)')   # handle through the fist (官方 2026-11: 手要拿著夾子)
     FW, FH = 900, 1500
     im = grade(shot(pg, {'w': FW, 'h': FH, 'az': 8, 'el': 4, 'dist': 1000, 'fov': 13.5, 'ty': .5}))
     tip = pg.evaluate(f'objScreen(R.gripTip, {FW}, {FH})')
