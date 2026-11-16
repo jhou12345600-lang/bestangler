@@ -1694,6 +1694,8 @@ function charInfo(c) {
 }
 function charKey(c) { return (c === 'boy' || c === 'b') && A.man.meta.boy ? 'boy' : 'girl'; }
 function charAssets(c) { return charKey(c) === 'boy' ? ['img:boy-idle', 'img:boy-fight', 'img:boy-walk'] : ['img:girl-idle', 'img:girl-fight']; }
+// gait cycles per second: the boy's walk strip carries the rate that keeps the planted foot still on the scrolling dock
+function walkRate() { const w = A.man.meta.boy && A.man.meta.boy.walk; return (w && w.rate) || 1.25 / 1.15; }
 // o: {x, feet, sc, fight, walk: {dir, ph}} ; x = body centre on screen. Returns the rod hand on screen.
 function charHand(c, o) {
   const ci = charInfo(c), sc = o.sc ?? 1;
@@ -1839,15 +1841,15 @@ const pond = {
         nx = this.wx; if (T - (this._bumpT || -9) > 2.5) { this._bumpT = T; say('前面有釣友，換個方向走吧'); }
       }
       if (nx === this.wx) dir = 0;
-      this.wx = nx; this.walk.ph = (this.walk.ph + dt * 1.25 / 1.15) % 1; this.follow = true;
-      if (T - (this._stepT || 0) > .43) { this._stepT = T; audio.tone(140 + rnd(30), .05, 'triangle', .05); }
+      const ph0 = this.walk.ph; this.wx = nx; this.walk.ph = (ph0 + dt * walkRate()) % 1; this.follow = true;
+      if (Math.floor(this.walk.ph * 2) !== Math.floor(ph0 * 2)) audio.tone(140 + rnd(30), .05, 'triangle', .05);   // a footfall at each heel strike
     }
     this.walk.dir = dir;
     // other players glide to where they report standing
     for (const { pe } of peers) {
       const tx = this.peerTarget(pe), cur = this.peerX[pe.peer];
       this.peerX[pe.peer] = cur === undefined || Math.abs(cur - tx) > 3 ? tx : lerp(cur, tx, clamp(dt * 3.5, 0, 1));
-      if (+pe.presence.w) this.peerPh[pe.peer] = ((this.peerPh[pe.peer] || 0) + dt * 1.09) % 1;
+      if (+pe.presence.w) this.peerPh[pe.peer] = ((this.peerPh[pe.peer] || 0) + dt * walkRate()) % 1;
     }
     // camera: follows me; drag the water to look along the dock
     const lock = !['idle', 'wait', 'lure'].includes(st);
