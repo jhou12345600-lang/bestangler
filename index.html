@@ -1698,19 +1698,22 @@ function roomModal(p, expired) {
 /* ---------------- anglers (女主角 = original art, 男主角 = rendered 3D stand-in) ---------------- */
 function charInfo(c) {
   const m = (c === 'boy' || c === 'b') && A.man.meta.boy;
-  if (m) return { key: 'boy', A0: m.anchor, idle: 'boy-idle', fight: 'boy-fight', hand: [m.handIdle, m.handFight], walk: m.walk };
-  return { key: 'girl', A0: A.man.meta.girlAnchor, idle: 'girl-idle', fight: 'girl-fight', hand: [HAND_IDLE, HAND_FIGHT], walk: null };
+  if (m) return { key: 'boy', A0: m.anchor, idle: 'boy-idle', fight: 'boy-fight', hand: [m.handIdle, m.handFight], walk: m.walk, walkKey: 'img:boy-walk' };
+  return { key: 'girl', A0: A.man.meta.girlAnchor, idle: 'girl-idle', fight: 'girl-fight', hand: [HAND_IDLE, HAND_FIGHT], walk: A.man.meta.girlWalk || null, walkKey: 'img:girl-walk' };
 }
 function charKey(c) { return (c === 'boy' || c === 'b') && A.man.meta.boy ? 'boy' : 'girl'; }
-function charAssets(c) { return charKey(c) === 'boy' ? ['img:boy-idle', 'img:boy-fight', 'img:boy-walk'] : ['img:girl-idle', 'img:girl-fight']; }
-// gait cycles per second: the boy's walk strip carries the rate that keeps the planted foot still on the scrolling dock
-function walkRate() { const w = A.man.meta.boy && A.man.meta.boy.walk; return (w && w.rate) || 1.25 / 1.15; }
+function charAssets(c) { return charKey(c) === 'boy' ? ['img:boy-idle', 'img:boy-fight', 'img:boy-walk'] : ['img:girl-idle', 'img:girl-fight', 'img:girl-walk']; }
+// gait cycles per second: the boy's strip carries the rate that keeps the planted foot still on the scrolling dock,
+// the girl's official cycle plays at the original 24 fps
+function walkRate(c) { const w = charInfo(c ?? S.char).walk; return (w && w.rate) || 1.25 / 1.15; }
+// the official girl walk frames carry no rod: it is put away while she walks
+function walkNoRod(c, walk) { const w = walk && walk.dir && charInfo(c).walk; return !!(w && w.noRod && A.tex[charInfo(c).walkKey]); }
 // o: {x, feet, sc, fight, walk: {dir, ph}} ; x = body centre on screen. Returns the rod hand on screen.
 function charHand(c, o) {
   const ci = charInfo(c), sc = o.sc ?? 1;
   if (o.walk && o.walk.dir) {
     const ph = o.walk.ph;
-    if (ci.walk && A.tex['img:boy-walk']) { const W = ci.walk, i = Math.floor(ph * W.n) % W.n, hh = W.hands[i]; return [o.x + (o.walk.dir > 0 ? -1 : 1) * (hh[0] - W.cx) * sc, o.feet - (W.fh - hh[1]) * sc]; }
+    if (ci.walk && A.tex[ci.walkKey] && ci.walk.hands) { const W = ci.walk, i = Math.floor(ph * W.n) % W.n, hh = W.hands[i]; return [o.x + (o.walk.dir > 0 ? -1 : 1) * (hh[0] - W.cx) * sc, o.feet - (W.fh - hh[1]) * sc]; }
     const bob = -Math.abs(Math.sin(ph * Math.PI * 2)) * 7 * sc, h = ci.hand[0];
     return [o.x + (h[0] - BODY[0]) * sc, o.feet + (h[1] - BODY[1]) * sc + bob];
   }
@@ -1722,8 +1725,8 @@ function drawChar(c, o) {
   img('girl-shadow', o.x - 112 * sc, o.feet - 46 * sc, { s: .9 * sc, a: .5 });
   if (o.walk && o.walk.dir) {
     const ph = o.walk.ph;
-    if (ci.walk && A.tex['img:boy-walk']) {
-      const W = ci.walk, i = Math.floor(ph * W.n) % W.n, t = A.tex['img:boy-walk'], sw = t.width / W.n;
+    if (ci.walk && A.tex[ci.walkKey]) {
+      const W = ci.walk, i = Math.floor(ph * W.n) % W.n, t = A.tex[ci.walkKey], sw = t.width / W.n;
       ctx.save(); ctx.translate(o.x, o.feet); if (o.walk.dir > 0) ctx.scale(-1, 1);
       ctx.drawImage(t, i * sw, 0, sw, t.height, -W.cx * sc, -W.fh * sc, W.fw * sc, W.fh * sc); ctx.restore();
       return;
@@ -1858,7 +1861,7 @@ const pond = {
     for (const { pe } of peers) {
       const tx = this.peerTarget(pe), cur = this.peerX[pe.peer];
       this.peerX[pe.peer] = cur === undefined || Math.abs(cur - tx) > 3 ? tx : lerp(cur, tx, clamp(dt * 3.5, 0, 1));
-      if (+pe.presence.w) this.peerPh[pe.peer] = ((this.peerPh[pe.peer] || 0) + dt * walkRate()) % 1;
+      if (+pe.presence.w) this.peerPh[pe.peer] = ((this.peerPh[pe.peer] || 0) + dt * walkRate(pe.presence && pe.presence.c)) % 1;
     }
     // camera: follows me; drag the water to look along the dock
     const lock = !['idle', 'wait', 'lure'].includes(st);
@@ -2560,11 +2563,12 @@ const pond = {
     }
     if (this.st === 'cast') { /* whip already in angle */ }
     // rod behind the angler when idle or walking (in front when raised)
-    if (!fightPose) this.drawRod(g.hand, tip, g.len, tension);
+    const noRod = walkNoRod(S.char, this.walk);
+    if (!fightPose && !noRod) this.drawRod(g.hand, tip, g.len, tension);
     drawChar(S.char, { x: meX(), feet: BODY[1], fight: fightPose, walk: this.walk.dir ? this.walk : null, t: this.t });
     if (fightPose) this.drawRod(g.hand, tip, g.len, tension);
     // fishing line
-    if (tgt) this.drawLine(tip, tgt);
+    if (tgt && !noRod) this.drawLine(tip, tgt);
     this.tipPos = tip;
   },
   drawRod(hand, tip, len, tension) {
@@ -2866,7 +2870,7 @@ const pond = {
         ctx.save(); ctx.beginPath(); ctx.rect(tgt[0] - 30, tgt[1] - 200, 60, 200 + 4); ctx.clip();
         ui(spr, tgt[0], tgt[1] + 4 - sz.h * s * (.62 - sink * .6) + Math.sin(this.t * 2.2 + x) * 1.5 * tgt[2], { s, ax: .5, ay: 0 }); ctx.restore();
       }
-      if (!fightPose) this.drawRod(hand, tip, len, tension);
+      if (!fightPose && !walkNoRod(c, walk)) this.drawRod(hand, tip, len, tension);
       drawChar(c, { x: cx, feet, sc, fight: fightPose, walk, t: this.t + x });
       if (fightPose) this.drawRod(hand, tip, len, tension);
       if (tgt) this.drawLine(tip, { x: tgt[0], y: tgt[1], slack: tgt[3] === 3 ? 1 - clamp(tension * 1.8, 0, 1) : .25 });
