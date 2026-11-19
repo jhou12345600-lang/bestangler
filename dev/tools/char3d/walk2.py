@@ -8,12 +8,15 @@ from playwright.sync_api import sync_playwright
 from PIL import Image, ImageEnhance, ImageFilter
 ARGS = ['--use-gl=angle', '--use-angle=swiftshader', '--enable-webgl', '--ignore-gpu-blocklist', '--enable-unsafe-swiftshader']
 OUT = sys.argv[3] if len(sys.argv) > 3 else '/home/claude/char3d/out/'
-AZ = float(sys.argv[1]) if len(sys.argv) > 1 else 128
+AZ = float(sys.argv[1]) if len(sys.argv) > 1 else 80
 N = int(sys.argv[2]) if len(sys.argv) > 2 else 16
 GRIP = {}
 for f in '1234':
     GRIP[f'R_Finger{f}'] = [0, 0, 70]; GRIP[f'R_Finger{f}1'] = [0, 0, 80]; GRIP[f'R_Finger{f}2'] = [0, 0, 60]
-PV = float(__import__('os').environ.get('PV', 4))
+PV = float(__import__('os').environ.get('PV', 3))
+# NOROD=1: walking without the rod (官方 2026-11-19: 男生走路也套用女孩的走法 — side view, rod put away, both arms swing)
+NOROD = __import__('os').environ.get('NOROD', '1') == '1'
+EF = float(__import__('os').environ.get('EF', -.45))   # elbow bend direction
 MODEL, PREFIX = 'm10/Male_Adult_10.fbx', 'm024'
 # (phase, degrees); hip + = flexion (leg forward), knee + = flexion, ankle + = toe down
 HIP = [(0, 26), (.12, 22), (.3, 6), (.5, -12), (.6, -6), (.73, 16), (.87, 28)]
@@ -43,9 +46,11 @@ def pose_at(ph):
         'L_Calf': [0, 0, -curve(KNEE, L)], 'R_Calf': [0, 0, -curve(KNEE, R)],
         'L_Foot': [0, 0, -curve(ANK, L)], 'R_Foot': [0, 0, -curve(ANK, R)],
         # left arm swings against the left leg; right hand keeps the rod
-        'L_UpperArm': [0, 0, 34 + .75 * (hl - 7)], 'L_Forearm': [0, 0, -14 - 6 * max(0, (7 - hl) / 20)],
-        'R_UpperArm': [0, 0, -12], 'R_Forearm': [0, 0, -68],
-        'Pelvis': [0, -PV * s, 0], 'Spine1': [0, PV * 1.2 * s, 0], **GRIP}
+        **({'L_UpperArm': [0, 41, -4 - .8 * (hr - 8)], 'L_Forearm': [0, 0, EF * (12 + .25 * max(0, hr - 8))],
+             'L_Hand': [0, 0, 0]} if NOROD else {'L_UpperArm': [0, 0, 34 + .75 * (hl - 7)], 'L_Forearm': [0, 0, -14 - 6 * max(0, (7 - hl) / 20)]}),
+        **({'R_UpperArm': [0, -41, -4 - .8 * (hl - 8)], 'R_Forearm': [0, 0, EF * (12 + .25 * max(0, hl - 8))]} if NOROD else
+           {'R_UpperArm': [0, 0, -12], 'R_Forearm': [0, 0, -68]}),
+        'Pelvis': [0, -PV * s, 0], 'Spine1': [0, PV * 1.2 * s, 0], **({} if NOROD else GRIP)}
 
 
 def grade(im):

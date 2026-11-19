@@ -15,6 +15,7 @@ wa = np.array(ws.crop((0, 0, wj['fw'], wj['fh'])).getchannel('A'))
 tc = np.where(wa[int(wj['fh'] * .2):int(wj['fh'] * .45)].max(0) > 40)[0]
 rate = 375 / (wj['stanceTravel'] / sb)
 man['meta']['boy']['walk'] = {'n': wj['n'], 'fw': round(wj['fw'] / sb, 2), 'fh': round(wj['fh'] / sb, 2), 'cx': round((tc.min() + tc.max()) / 2 / sb, 1),
-                              'hands': [[round(h[0] / sb, 1), round(h[1] / sb, 1)] for h in wj['hands']], 'rate': round(rate, 3)}
+                              'hands': [[round(h[0] / sb, 1), round(h[1] / sb, 1)] for h in wj['hands']], 'rate': round(rate, 3),
+                              'noRod': True}   # side view, rod put away while walking, like the official girl walk
 json.dump(man, open(OUT + 'assets.json', 'w'), ensure_ascii=False, separators=(',', ':'))
 w = man['meta']['boy']['walk']; print(w['n'], w['fw'], w['fh'], w['cx'], w['rate'])
