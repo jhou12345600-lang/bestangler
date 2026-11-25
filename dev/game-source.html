@@ -1203,6 +1203,47 @@ const toast = { msg: '', t: 0 };
 function say(msg, dur = 2.2) { toast.msg = msg; toast.t = dur; if (/不足|不夠|需要 ?Lv|無法|不能|失敗|請先|已滿|上限|錯誤|不符/.test(msg)) audio.err(); }
 
 /* ---------------- shared HUD (top bar) ---------------- */
+// 爆金幣 for rewards (任務領獎…): coins jump out of the button and pour into the gold / silver bars at the top,
+// whose numbers count up as they land. Positions are kept in root logical coordinates (device px / K).
+const COINFX = {
+  coins: [], pend: { gold: 0, silver: 0 }, tgt: { gold: [LW - 300, 40], silver: [LW - 300, 110] }, done: null, t: 0,
+  root(x, y) { const p = ctx.getTransform().transformPoint(new DOMPoint(x, y)); return [p.x / K, p.y / K]; },
+  mark(k, x, y) { this.tgt[k] = this.root(x, y); },
+  shown(k) { return (k === 'gold' ? S.gold : S.silver) - this.pend[k]; },
+  burst(from, gold, silver, done) {   // from: root logical coordinates (see root())
+    const add = (k, total, n) => { if (total <= 0) return; this.pend[k] += total;
+      for (let i = 0; i < n; i++) { const p0 = [from[0] + rnd(-24, 24), from[1] + rnd(-10, 10)];
+        this.coins.push({ k, v: total / n, p0, up: rnd(120, 260), dx: rnd(-150, 150), t0: this.t + i * .05 + rnd(0, .06), hop: rnd(.32, .42), dur: rnd(.62, .85), spin: rnd(8, 14), ph: rnd(0, 6), bounce: rnd(28, 60) }); } };
+    add('gold', gold, clamp(Math.round(gold), 4, 12)); add('silver', silver, clamp(Math.round(silver / 50), 8, 24));
+    if (!this.coins.length) { done && done(); return; }
+    if (!audio.play('coins', .8)) audio.coin();
+    this.done = done || null;
+  },
+  update(dt) {
+    this.t += dt;
+    for (const c of this.coins) if (!c.got && this.t >= c.t0 + c.hop + c.dur) { c.got = true; this.pend[c.k] = Math.max(0, this.pend[c.k] - c.v); if (Math.random() < .5) audio.tone(1500 + Math.random() * 600, .05, 'triangle', .05); }
+    if (this.coins.length && this.coins.every(c => c.got)) { this.coins = []; this.pend.gold = this.pend.silver = 0; const d = this.done; this.done = null; d && d(); }
+  },
+  draw() {
+    for (const c of this.coins) {
+      if (c.got) continue;
+      const u = this.t - c.t0; if (u < 0) continue;
+      let x, y, s;
+      if (u < c.hop) {   // jump up out of the button and bounce once
+        const v = u / c.hop, b = v < .7 ? Math.sin(v / .7 * Math.PI) : Math.sin((v - .7) / .3 * Math.PI) * .25;
+        x = c.p0[0] + c.dx * .35 * v; y = c.p0[1] - b * c.up * (v < .7 ? 1 : c.bounce / c.up); s = 1.25;
+      } else {           // then sweep up into the bar
+        const v = Math.min(1, (u - c.hop) / c.dur), k = v * v * (3 - 2 * v), a = [c.p0[0] + c.dx * .35, c.p0[1]], t = this.tgt[c.k];
+        const cp = [a[0] + c.dx, Math.min(a[1], t[1]) - 160], q = 1 - k;
+        x = q * q * a[0] + 2 * q * k * cp[0] + k * k * t[0]; y = q * q * a[1] + 2 * q * k * cp[1] + k * k * t[1]; s = lerp(1.25, .75, k);
+      }
+      const sp = Math.cos(this.t * c.spin + c.ph);
+      ctx.save(); ctx.translate(x, y); ctx.scale(Math.max(.2, Math.abs(sp)), 1);
+      ui(c.k === 'gold' ? 'lobby/shop/icon-gold' : 'lobby/shop/icon-silver', 0, 0, { ax: .5, ay: .5, s });
+      ctx.restore();
+    }
+  },
+};
 function hudTop(o = {}) {
   const y0 = 10;
   ui('top-UI/girl-head-panel', 4, y0, { s: .9 });
@@ -1226,9 +1267,9 @@ function hudTop(o = {}) {
   // currencies
   const px = 360;
   ui('top-UI/gold_coin-panel', px, y0 + 2, { s: .78 });
-  text(fmt(o.gold ?? S.gold), px + 70, y0 + 2 + 32, { size: 24, weight: 900, color: '#fff', stroke: '#0a4a6a' });
+  text(fmt(o.gold ?? COINFX.shown('gold')), px + 70, y0 + 2 + 32, { size: 24, weight: 900, color: '#fff', stroke: '#0a4a6a' }); COINFX.mark('gold', px + 32, y0 + 33);
   ui('top-UI/silver_coin-panel', px, y0 + 66, { s: .78 });
-  text(fmt(o.silver ?? S.silver), px + 70, y0 + 66 + 32, { size: 24, weight: 900, color: '#fff', stroke: '#0a4a6a' });
+  text(fmt(o.silver ?? COINFX.shown('silver')), px + 70, y0 + 66 + 32, { size: 24, weight: 900, color: '#fff', stroke: '#0a4a6a' }); COINFX.mark('silver', px + 32, y0 + 97);
   ui('top-UI/EP-panel', px - 4, y0 + 130, { s: .62 });
   text(fmt(o.ep ?? S.ep) + ' EP', px + 50, y0 + 130 + 25, { size: 19, weight: 900, color: '#fff', stroke: '#0a4a6a' });
   // 儲值「+」緊接在金幣欄右邊
@@ -1630,12 +1671,12 @@ function hudLobby() {
   if (hit('rename', { x: 770, y: 30, w: nw + 50, h: 64 }).click) openModal(renameModal());
   // 金幣 + 儲值，下一排 經驗 與 銀幣
   ui('top-UI/gold_coin-panel', 1006, 22, { s: 1 });
-  text(fmt(S.gold), 1090, 62, { size: 30, weight: 900, color: '#fff', stroke: '#0a4a6a' });
+  text(fmt(COINFX.shown('gold')), 1090, 62, { size: 30, weight: 900, color: '#fff', stroke: '#0a4a6a' }); COINFX.mark('gold', 1046, 62);
   if (btn('pay', 'top-UI/button-payment', 1272, 60, { s: 1 }).click) openModal(payModal());
   ui('top-UI/EP-panel', 790, 98, { s: 1 });
   text(fmt(S.ep) + ' EP', 872, 138, { size: 28, weight: 900, color: '#fff', stroke: '#0a4a6a' });
   ui('top-UI/silver_coin-panel', 1056, 98, { s: 1 });
-  text(fmt(S.silver), 1140, 138, { size: 30, weight: 900, color: '#fff', stroke: '#0a4a6a' });
+  text(fmt(COINFX.shown('silver')), 1140, 138, { size: 30, weight: 900, color: '#fff', stroke: '#0a4a6a' }); COINFX.mark('silver', 1096, 138);
 }
 
 /* =====================================================================
@@ -1732,6 +1773,13 @@ function drawChar(c, o) {
 /* angler animation frames (神釣手 original order): idle 1-32, 揚竿 pull 33-56, 搏魚 fight 57-63,
    大魚中鉤 big 64-70, 撈魚 get 71-85, 拋竿 throw 86-124. One atlas per angler + rod code (rod drawn in the frame). */
 const ANG_FPS = 24;
+// the reel-cranking loops (125-140 收線, 141-156 搏魚) live in their own atlas: ang-…R, for rods with a reel
+function reelKey(key, code) {
+  const rd = RODS_BY_CODE[code]; if (!key || !rd || rd.kind === 'pole') return null;
+  const rk = key + 'R'; if (!(A.man.meta.ang && A.man.meta.ang[rk])) return null;
+  if (!A.tex['img:' + rk]) { ensure(['img:' + rk]); return null; }
+  return rk;
+}
 function angKey(c, code) {
   const ck = charKey(c), fam = ck === 'boy' ? (code[0] === 'H' ? 'H' : code[0] === 'C' ? 'C' : 'L') : code;   // the male set is rendered per rod family
   const k = 'ang-' + ck + '-' + fam; return A.man.meta.ang && A.man.meta.ang[k] ? k : null;
@@ -2373,6 +2421,11 @@ const pond = {
     this.updateDock(dt);
     this.camShake = Math.max(0, this.camShake - dt);
     if (this.burst && (this.burst.t += dt) > 1.1) this.burst = null;
+    // reel handle: turns with the retrieve speed, and in a fight while reeling in (not while the fish takes line)
+    { const st = this.st, fg = st === 'fight' || st === 'hookset';
+      const rate = st === 'lure' ? this.reel * 2.2 : fg ? Math.max(this.reel * 2, this.pump ? 1.7 : 0, (this.N || 0) > 0 ? .5 + this.N / 10 * 1.2 : 0) : 0;
+      this.crank = (this.crank || 0) + dt * rate;
+      if (st === 'lure') audio.reelSet(this.reel > .05); }   // the reel's clicking while the lure comes in
     if (this.banner) { this.banner.t += dt; if (this.banner.t > (this.banner.k === 'gold' ? 2 : 1.4)) this.banner = null; }
     // ambient fish
     for (const s of this.shadows) { s.age += dt; s.h += Math.sin(this.t * .3 + s.z) * dt * .2; s.x += Math.cos(s.h) * s.v * dt; s.z += Math.sin(s.h) * s.v * dt; }
@@ -2662,6 +2715,10 @@ const pond = {
       if (n <= q[1]) return { key, n };
       this.act = null;
     }
+    // rods with a reel: turn the handle while retrieving the lure and while fighting (官方：路亞竿不能用手竿的動作)
+    const rk = reelKey(key, this.rod().code), cn = Math.floor((this.crank || 0) * 16) % 16;
+    if (rk && this.st === 'lure') return { key: rk, n: 125 + cn };
+    if (rk && (this.st === 'hookset' || this.st === 'fight')) return { key: rk, n: 141 + cn };
     if (this.st === 'hookset' || this.st === 'fight') return { key, n: 57 + Math.floor(this.t * 14) % 7 };
     return { key, n: 1 + Math.floor(this.t * 12) % 32 };
   },
@@ -2967,8 +3024,10 @@ const pond = {
       if (ak && !A.tex['img:' + ak]) ensure(['img:' + ak]);
       if (ak && A.tex['img:' + ak]) {
         const ph = this.t * 12 + x * 7;
-        const n = pr.st === 'hookset' || pr.st === 'fight' ? 57 + Math.floor(ph) % 7 : pr.st === 'land' ? 77 : pr.st === 'cast' ? 99 : 1 + Math.floor(ph) % 32;
-        const fr = drawAngFrame(ak, n, cx, feet, { sc });
+        const rk = reelKey(ak, typeof pr.r === 'string' && RODS_BY_CODE[pr.r] ? pr.r : this.defaultCode()), fg = pr.st === 'hookset' || pr.st === 'fight';
+        const n = rk && (fg || pr.st === 'lure') ? (fg ? 141 : 125) + Math.floor(this.t * (fg ? 22 : 18) + x * 5) % 16
+          : fg ? 57 + Math.floor(ph) % 7 : pr.st === 'land' ? 77 : pr.st === 'cast' ? 99 : 1 + Math.floor(ph) % 32;
+        const fr = drawAngFrame(rk && (fg || pr.st === 'lure') ? rk : ak, n, cx, feet, { sc });
         let tg = null;
         if (Array.isArray(pr.f)) { const pt = proj((+pr.f[0] || 0) + m, +pr.f[1] || 6); tg = [pt.x, pt.y - 4 * pt.f, pt.f, pr.f[2]]; }
         if (Array.isArray(pr.h)) { const pt = proj((+pr.h[0] || 0) + m, +pr.h[1] || 6); tg = [pt.x, pt.y, pt.f, 3]; }
@@ -3521,7 +3580,8 @@ async function enterPond(p, paid) {
   if (p.fee.per === 'room' && !paid && !roomValid(p)) { openModal(roomModal(p, false)); return; }
   loading.show('前往' + p.name + '…');
   const sp = p.fish, ak = RODS[S.equip.rod] && angKey(S.char, RODS[S.equip.rod].code);
-  await ensureProgress([...(ak ? ['img:' + ak] : []), `img:${p.bgKey}-bg-water`, `img:${p.bgKey}-bg-top`, `img:${p.bgKey}-wood-grass`, ...charAssets(S.char), 'img:girl-idle', 'img:girl-fight', 'img:girl-shadow', 'anim:splash',
+  const rkey = ak && RODS[S.equip.rod].kind !== 'pole' && A.man.meta.ang[ak + 'R'] ? ak + 'R' : null;
+  await ensureProgress([...(ak ? ['img:' + ak] : []), ...(rkey ? ['img:' + rkey] : []), `img:${p.bgKey}-bg-water`, `img:${p.bgKey}-bg-top`, `img:${p.bgKey}-wood-grass`, ...charAssets(S.char), 'img:girl-idle', 'img:girl-fight', 'img:girl-shadow', 'anim:splash',
     ...(p.id === 1 ? ['img:pond-cloud1', 'img:pond-cloud2', 'img:pond-cloud3', 'img:p1-top', 'img:p1-water', 'img:p1-floor', 'img:p1-rail', 'img:p1-rail-broken', 'img:p1-wood', 'img:p1-grass', 'img:p1-grass2'] : [`img:${p.bgKey}-fog`]),
     ...(p.id === 3 ? ['img:p3-top', 'img:p3-water', 'img:p3-floor', 'img:p3-grass', 'img:p3-wood1', 'img:p3-wood2', 'img:p3-wood3', 'img:p3-wood4'] : []), ...sp.map(k => 'anim:fight-' + k)], v => loading.p = v);
   loading.hide();
@@ -4193,12 +4253,16 @@ function missionList() {
   out.push({ id: 'ad', title: '點擊廣告賺金幣', desc: '每天點擊一次廣告即可獲得獎勵（即將開放）', prog: [0, 1], reward: {}, ok: false, soon: true });
   return out.sort((a, b) => (b.ok - a.ok) || (a.soon ? 1 : 0) - (b.soon ? 1 : 0));
 }
-function claimMission(m) {
+function claimMission(m, at) {
   const r = m.reward, lv0 = LV();
   if (r.s) S.silver += r.s; if (r.g) S.gold += r.g; if (r.ep) addEp(r.ep);
   if (m.id === 'streak') { S.streak.n -= 7; S.streak.weeks = (S.streak.weeks | 0) + 1; } else S.done[m.id] = 1;
-  save(); NET.saveProfile(); audio.coin();
-  openModal(messageModal(`任務完成！\n獲得 ${rewardText(r)}` + (LV() > lv0 ? `\n升到 Lv.${LV()}「${title()}」！` : ''), '任務'));
+  save(); NET.saveProfile();
+  const msg = () => { if (at) openModal(missionsModal()); openModal(messageModal(`任務完成！\n獲得 ${rewardText(r)}` + (LV() > lv0 ? `\n升到 Lv.${LV()}「${title()}」！` : ''), '任務')); };
+  // 爆金幣: the list closes, the coins jump out of 「領取」 and pour into the gold / silver bars (their numbers count up),
+  // then the list comes back with the summary on top
+  if (at && (r.s || r.g)) COINFX.burst(at, r.g || 0, r.s || 0, msg);
+  else { audio.coin(); msg(); }
 }
 function missionsModal() {
   const m = {
@@ -4215,7 +4279,7 @@ function missionsModal() {
           text(it.title, 114, y - 19, { size: 22, weight: 900, color: it.soon ? 'rgba(255,255,255,.55)' : '#fff' });
           text(it.desc, 114, y + 5, { size: 16, weight: 700, color: 'rgba(255,236,204,.85)' });
           if (!it.soon) text('獎勵：' + rewardText(it.reward), 114, y + 27, { size: 17, weight: 900, color: '#ffd76a' });
-          if (it.ok) { if (textBtn('ms' + i, '領取', 566, y, 96, 52, { layer: 1, size: 24, colors: ['#7fe08a', '#2b9a3c'], edge: '#145b20' }).click) claimMission(it); }
+          if (it.ok) { if (textBtn('ms' + i, '領取', 566, y, 96, 52, { layer: 1, size: 24, colors: ['#7fe08a', '#2b9a3c'], edge: '#145b20' }).click) { const at = COINFX.root(566, y); closeModal(m); claimMission(it, at); } }
           else if (!it.soon) text(`${it.prog[0] % 1 ? it.prog[0].toFixed(1) : it.prog[0]}/${it.prog[1]}`, 610, y, { size: 22, weight: 900, align: 'right', color: '#bdf6ff' });
         });
         if (list.length > per) {
@@ -4333,6 +4397,7 @@ function loop(now) {
   for (const m of modals) { m.t += dt; }
   FIELD_USE.chatIn = FIELD_USE.fidIn = false;
   if (modals.length) withView(PX, 0, 1, () => modals[modals.length - 1].draw());   // popups sit in the centre panel
+  COINFX.update(dt); if (COINFX.coins.length) { ctx.save(); ctx.setTransform(K, 0, 0, K, 0, 0); COINFX.draw(); ctx.restore(); }
   if (!FIELD_USE.chatIn && chatIn.style.display !== 'none') { chatIn.style.display = 'none'; chatIn.blur(); }
   if (!FIELD_USE.fidIn && fidIn.style.display !== 'none') { fidIn.style.display = 'none'; fidIn.blur(); }
   if (loading.on) withView(PX, 0, 1, () => {

@@ -182,7 +182,29 @@ window.setRod = (o) => {
     const mat = u < .2 ? mats[0] : (u < .24 ? mats[3] : (Math.floor(u * 11) % 3 === 0 ? mats[2] : mats[1]));
     seg(pts[i], pts[i + 1], r0, r1, mat, grp);
   }
-  if (st !== 'pole') { const reel = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 3, 18), mats[3]); reel.position.copy(pts[4]).add(new THREE.Vector3(0, -3.5, 0)); reel.rotation.z = Math.PI / 2; grp.add(reel); }
+  if (st !== 'pole' && o.crank == null) { const reel = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 3, 18), mats[3]); reel.position.copy(pts[4]).add(new THREE.Vector3(0, -3.5, 0)); reel.rotation.z = Math.PI / 2; grp.add(reel); }
+  if (st !== 'pole' && o.crank != null) {
+    // spinning reel hanging under the rod just ahead of the right hand, handle on the angler's left (+X), turning at angle o.crank
+    const fw = d.clone(), side = new THREE.Vector3(1, 0, 0).addScaledVector(fw, -fw.x).normalize(), dn = new THREE.Vector3().crossVectors(fw, side).normalize();
+    if (dn.y > 0) dn.negate();
+    const stemTop = hp.clone().addScaledVector(fw, 7), body = stemTop.clone().addScaledVector(dn, 6.5);
+    const metal = new THREE.MeshStandardMaterial({ color: '#c9ced4', roughness: .25, metalness: .85 }), dark = new THREE.MeshStandardMaterial({ color: '#23272d', roughness: .4, metalness: .4 });
+    const gold = new THREE.MeshStandardMaterial({ color: '#d9a43a', roughness: .3, metalness: .8 });
+    seg(stemTop, body, .7, .7, dark, grp);
+    const B = (geo, mat, pos, axis) => { const m = new THREE.Mesh(geo, mat); m.position.copy(pos); m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis.clone().normalize()); grp.add(m); return m; };
+    B(new THREE.CylinderGeometry(2.6, 2.6, 4.2, 22), dark, body, side);                       // gear housing
+    const spool = body.clone().addScaledVector(fw, 4.2);
+    B(new THREE.CylinderGeometry(2.9, 2.5, 3.6, 22), metal, spool, fw);                       // spool, line on it
+    B(new THREE.CylinderGeometry(2.3, 2.3, 2.6, 22), new THREE.MeshStandardMaterial({ color: '#e9eef2', roughness: .6 }), spool.clone().addScaledVector(fw, .2), fw);
+    B(new THREE.TorusGeometry(3.3, .22, 6, 24, Math.PI), gold, spool.clone().addScaledVector(fw, 1.8), fw).rotateZ(o.crank * 1.0);   // bail
+    const hub = body.clone().addScaledVector(side, 3.4);
+    B(new THREE.CylinderGeometry(.6, .6, 3.2, 10), metal, body.clone().addScaledVector(side, 1.8), side);
+    const r = 4.6, a = o.crank, arm = hub.clone().addScaledVector(dn, r * Math.cos(a)).addScaledVector(fw, r * Math.sin(a));
+    seg(hub, arm, .55, .45, metal, grp);
+    const knobC = arm.clone().addScaledVector(side, 1.6);
+    B(new THREE.CylinderGeometry(1.15, 1.15, 3, 14), new THREE.MeshStandardMaterial({ color: '#efe6d2', roughness: .5 }), knobC, side);
+    R.knob = knobC.toArray(); R.reelBody = body.toArray();
+  }
   R.scene.add(grp); R.rod = grp; R.rodTip = pts[N].toArray();
 };
 window.setNet = (o) => {
@@ -210,6 +232,27 @@ window.shootFix = (o) => {
 };
 window.feetScreen = (w, h) => ptScreen([R.fixC.x, R.fixMin, R.fixC.z], w, h);
 
+// numeric IK: bone euler offsets for one arm so its palm (or a point on it) reaches target; regularised toward init
+window.palm = (side) => handPos(side);
+window.ikArm = (side, target, init, o = {}) => {
+  const T = THREE, tg = V3(target), names = [side + '_UpperArm', side + '_Forearm'];
+  let p = init.slice();   // [ua.x, ua.y, ua.z, fa.x, fa.y, fa.z]
+  const apply = q => pose({ [names[0]]: q.slice(0, 3), [names[1]]: q.slice(3, 6) });
+  const reg = o.reg ?? .004, lock = o.lock || [];
+  const cost = q => { apply(q); let c = palm(side).distanceTo(tg); for (let i = 0; i < 6; i++) c += reg * (q[i] - init[i]) ** 2; return c; };
+  let best = cost(p);
+  for (const step of (o.steps || [12, 6, 3, 1.5, .7, .3])) {
+    for (let it = 0; it < 40; it++) {
+      let improved = false;
+      for (let i = 0; i < 6; i++) {
+        if (lock.includes(i)) continue;
+        for (const sgn of [1, -1]) { const q = p.slice(); q[i] += sgn * step; const c = cost(q); if (c < best - 1e-4) { best = c; p = q; improved = true; } }
+      }
+      if (!improved) break;
+    }
+  }
+  apply(p); return { p, err: palm(side).distanceTo(tg) };
+};
 window.ready = true;
 </script>
 </body></html>
