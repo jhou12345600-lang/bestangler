@@ -4,6 +4,7 @@ The left palm follows the reel's turning handle (numeric IK each frame).
 python3 anim_reel.py probe out.png        contact sheet (back + side views)
 python3 anim_reel.py render FAMILY        out/anim/<FAMILY>R/NNNN.png + meta.json   (FAMILY: C, L)"""
 import base64, io, json, math, os, sys
+import numpy as np
 from playwright.sync_api import sync_playwright
 from PIL import Image, ImageDraw
 sys.argv_ = sys.argv; sys.argv = ['x']
@@ -19,7 +20,7 @@ for _f in '1234':
 LGRIP['L_Finger0'] = [0, 0, 20 * LF]; LGRIP['L_Finger01'] = [0, 0, 25 * LF]
 TW = float(_os.environ.get('TW', -20))   # torso turn toward the rod (X = twist on this rig)
 CLAV = _os.environ.get('CLAV', '1') == '1'
-RY = float(_os.environ.get('RY', 42)); RX = float(_os.environ.get('RX', -18)); RZ = float(_os.environ.get('RZ', 14))
+RY = float(_os.environ.get('RY', 37)); RX = float(_os.environ.get('RX', -14)); RZ = float(_os.environ.get('RZ', 12))
 # 官方 2026-11-25：男角捲線動作跟女角一樣 — rod held up on the right with both hands at head height, the reel beside
 # the head and the left hand reaching across to turn the handle. rh: right palm target relative to the right shoulder.
 POSES = {
@@ -43,7 +44,7 @@ def open_page(p):
 BONE = """n => { const v = new R.THREE.Vector3(); R.bones[n].getWorldPosition(v); return v.toArray(); }"""
 
 
-def state(pg, kind, i, fam, prevL):
+def state(pg, kind, i, fam, prevL, fixL=None):
     P = POSES[kind]; ph = i / N; a = 2 * math.pi * ph
     bob = BOB[kind]
     body = {k: list(v) for k, v in P['body'].items()}
@@ -56,6 +57,11 @@ def state(pg, kind, i, fam, prevL):
     rod['k'] = rod['k'] * (1 + .06 * math.sin(a * 2))      # the rod tip pumps a little with each turn
     pg.evaluate('o => setRod(o)', rod)
     knob = pg.evaluate('R.knob')
+    if fixL is not None:   # smoothed loop: stay near the smoothed angles, only nudge the palm back onto the knob
+        l = pg.evaluate('a => ikArm("L", a[0], a[1], {reg: .0015, clav: true, steps: [3, 1.5, .7, .3, .15]})', [knob, fixL])
+        pg.evaluate('q => pose({L_UpperArm: q.slice(0, 3), L_Forearm: q.slice(3, 6), ...(q.length > 6 ? {L_Clavicle: q.slice(6, 9)} : {})})', l['p'])
+        pg.evaluate('o => setRod(o)', rod)
+        return r, l
     starts = [prevL] if prevL else []
     starts += [[0, 30, -40, 0, 100, -10], [0, 20, -20, 0, 85, -5], [0, 35, -35, 0, 60, -20], [20, 10, -40, 0, 100, 0], [-20, 30, -10, 0, 70, -30]]
     best = None
@@ -66,6 +72,23 @@ def state(pg, kind, i, fam, prevL):
     l = best; pg.evaluate('q => pose({L_UpperArm: q.slice(0, 3), L_Forearm: q.slice(3, 6), ...(q.length > 6 ? {L_Clavicle: q.slice(6, 9)} : {})})', l['p'])
     pg.evaluate('o => setRod(o)', rod)   # rebuild after the final pose (rod follows the right hand)
     return r, l
+
+
+def solve_loop(pg, kind, fam, H_=2):
+    """16 left-arm poses for one handle turn: solve continuously, keep the low harmonics of every joint angle
+    (a smooth, even circle with no snaps), then nudge each frame back onto the knob"""
+    prev = None; raw = []
+    for rep in range(2):
+        for i in range(N):
+            r, l = state(pg, kind, i, fam, prev); prev = l['p']
+            if rep == 1: raw.append(l['p'])
+    P = np.array(raw, float); F = np.fft.rfft(P, axis=0); F[H_ + 1:] = 0; S = np.fft.irfft(F, n=N, axis=0)
+    out = []
+    for i in range(N):
+        r, l = state(pg, kind, i, fam, None, list(S[i])); out.append(l['p'])
+    jr = np.abs(np.diff(np.vstack([P, P[:1]]), axis=0)).max(); jo = np.abs(np.diff(np.vstack([np.array(out), np.array(out[:1])]), axis=0)).max()
+    print(kind, 'max joint step raw %.1f smooth %.1f deg' % (jr, jo))
+    return out
 
 
 def shoot(pg, az=180):
@@ -98,11 +121,11 @@ if __name__ == '__main__':
                     r, l = state(pg, kind, i, 'L', prev); prev = l['p']; errs.append(l['err'])
             print('scan', _os.environ.get('RX'), _os.environ.get('RY'), _os.environ.get('RZ'), _os.environ.get('TW'), 'max', round(max(errs), 1), 'mean', round(sum(errs) / len(errs), 1))
         elif mode == 'zoom':   # close-up of the hands and reel through one turn
-            tiles = []; prev = None; kind = sys.argv[3] if len(sys.argv) > 3 else 'retrieve'
-            for rep in range(2):
-                for i in range(N):
-                    r, l = state(pg, kind, i, 'L', prev); prev = l['p']
-                    if rep == 0 or i % 2: continue
+            tiles = []; kind = sys.argv[3] if len(sys.argv) > 3 else 'retrieve'
+            Ls = solve_loop(pg, kind, 'L')
+            for _ in [0]:
+                for i in range(0, N, 2):
+                    r, l = state(pg, kind, i, 'L', None, Ls[i])
                     im, tip = shoot(pg); bg = Image.new('RGBA', im.size, (50, 110, 130, 255)); bg.alpha_composite(im)
                     k = pg.evaluate(f'ptScreen(R.knob, {W}, {H})')
                     t = bg.crop((int(k[0]) - 110, int(k[1]) - 110, int(k[0]) + 110, int(k[1]) + 110)).resize((330, 330))
@@ -113,12 +136,10 @@ if __name__ == '__main__':
             meta = {'scale': SCALE, 'frames': {}}
             pg.evaluate('resetPose()'); pg.evaluate('o => setRod(o)', None); im, _ = shoot(pg); im.save(d + 'ref.png')   # standing, for feet/centre
             for kind, base in [('retrieve', 125), ('fight', 141)]:
-                prev = None
-                for rep in range(2):            # second pass starts from a settled left arm so the loop closes
-                    for i in range(N):
-                        r, l = state(pg, kind, i, fam, prev); prev = l['p']
-                        if rep == 1:
-                            im, tip = shoot(pg); im.save(d + f'{base + i:04d}.png'); meta['frames'][str(base + i)] = {'tip': tip, 'net': None, 'kind': 0, 'errL': round(l['err'], 2)}
+                Ls = solve_loop(pg, kind, fam)
+                for i in range(N):
+                    r, l = state(pg, kind, i, fam, None, Ls[i])
+                    im, tip = shoot(pg); im.save(d + f'{base + i:04d}.png'); meta['frames'][str(base + i)] = {'tip': tip, 'net': None, 'kind': 0, 'errL': round(l['err'], 2)}
             # 157-164: after the cast lands, raise the rod and bring the left hand up to the reel handle (into frame 125)
             r0, l0 = None, None
             prev = None
