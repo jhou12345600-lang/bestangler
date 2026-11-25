@@ -1807,10 +1807,11 @@ const pond = {
     ensure(sp.flatMap(k => ['anim:fight-' + k, 'anim:land-' + k, 'anim:under-' + k]).concat(['anim:splash', 'anim:underwave', 'img:uw-bg', 'img:fight-bed', 'img:fight-surface', 'anim:angry', 'img:victory', 'img:victory-light']));
     ensure(charAssets(S.char).concat(['img:boy-catch', 'img:boy-head']));
     ensure(sp.flatMap(k => ['anim:hang-' + k]).concat(['anim:catchgirl', 'anim:catchwater', 'anim:fireworks', 'img:catch-BG-sky', 'img:catch-BG-water', 'img:catch-BG-shore', 'img:catch-BG-boat', 'img:catch-BG-cloud1', 'img:catch-BG-cloud2', 'img:catch-UI-right-board', 'img:catch-UI-down-board', 'img:win-lightwheel', 'img:catch-win']));
-    if (this.newP1()) {
-      const top = A.tex['img:p1-top'], rc = document.createElement('canvas'); rc.width = 1500; rc.height = 240;
+    const nk = this.newP1() ? 'p1' : this.newP3() ? 'p3' : null;
+    if (nk) {
+      const top = A.tex['img:' + nk + '-top'], rc = document.createElement('canvas'); rc.width = 1500; rc.height = 240;
       rc.getContext('2d').drawImage(top, 0, 0, 1500, 240, 0, 0, 1500, 240);
-      water.setScene(A.tex['img:p1-water'] || A.tex['img:' + p.bgKey + '-bg-water'], rc, { rw: 1500, mir: 0 });
+      water.setScene(A.tex['img:' + nk + '-water'] || A.tex['img:' + p.bgKey + '-bg-water'], rc, { rw: 1500, mir: 0 });
     } else water.setScene(A.tex['img:' + p.bgKey + '-bg-water'], A.tex['img:' + p.bgKey + '-bg-top']);
     water.rip = [];
     glc.style.visibility = 'visible';
@@ -1876,6 +1877,32 @@ const pond = {
   // a tile of a background, mirrored side by side so the pond goes on along the dock
   // 休閒池 (官方 2026-11 新版美術)
   newP1() { return this.p && this.p.id === 1 && !!A.tex['img:p1-top'] && !!A.tex['img:p1-floor']; },
+  // 路亞池 (官方 2026-11-25 新版美術：沼澤、枯木、石岸)
+  newP3() { return this.p && this.p.id === 3 && !!A.tex['img:p3-top'] && !!A.tex['img:p3-floor']; },
+  // dead wood lying in the swamp: placed in pond coordinates so they sit in the water's perspective
+  // (bigger when nearer, sliding with the camera like the fish and the lure), bobbing very slightly
+  P3_LOGS: [['p3-wood3', -6.5, 12, 1], ['p3-wood1', 5.5, 15, 0], ['p3-wood4', -3.6, 7.4, 0], ['p3-wood2', 7.4, 8.4, 1], ['p3-wood4', 1.6, 18.5, 1],
+            ['p3-wood1', -12.5, 9, 1], ['p3-wood3', 14, 13, 0], ['p3-wood4', 11.5, 6, 1], ['p3-wood2', -17, 13.5, 0], ['p3-wood3', 20, 9, 1], ['p3-wood1', -22, 7, 0]],
+  drawP3Logs() {
+    const logs = this.P3_LOGS.map(l => [l, proj(l[1], l[2])]).sort((a, b) => a[1].y - b[1].y);
+    for (const [[k, , z, flip], pt] of logs) {
+      const m = A.man.img[k]; if (!m) continue;
+      const s = Math.min(1.1, pt.f * 3.6), w = m.w * s, h = m.h * s;
+      if (pt.x + w / 2 < -40 || pt.x - w / 2 > LW + 40) continue;
+      const bob = Math.sin(this.t * .7 + z) * 1.5 * pt.f;
+      img(k, pt.x - w / 2, pt.y - h * .72 + bob, { w, h, flip: !!flip });
+    }
+  },
+  // rocky shore in front, with grass tufts growing behind the stones
+  drawP3Shore(camPx) {
+    const P3 = 2400, base = LH - 96, x0 = camPx - LW / 2, m = A.man.img['p3-grass'];
+    if (m) for (const [wx, sc] of [[120, .9], [700, .75], [1180, 1], [1650, .8], [2050, .95]])
+      for (let j = Math.ceil((x0 - wx - m.w) / P3); ; j++) {
+        const x = wx + j * P3 - x0; if (x - m.w > LW) break;
+        img('p3-grass', Math.round(x - m.w * sc / 2), Math.round(base + 34 - m.h * sc), { w: m.w * sc, h: m.h * sc });
+      }
+    this.strip('p3-floor', LH - 116, camPx);
+  },
   // repeat an image at its own size along x (no stretching, no mirroring)
   strip(key, y, shift, a) {
     const m = A.man.img[key]; if (!m) return; const w = m.w;
@@ -1960,7 +1987,7 @@ const pond = {
     const to = this.cast.to;
     const pt = proj(to.x, to.z);
     water.ripple(pt.x, pt.y, 1.1); this.addSplash(pt.x, pt.y, pt.f * 1.1, .8); audio.plop();
-    if (this.isLure()) { this.lure = { x: to.x, z: to.z, depth: 0, vz: 0, wob: 0, interest: 0 }; this.setState('lure'); }
+    if (this.isLure()) { this.lure = { x: to.x, z: to.z, depth: 0, v: 0, wob: 0, amp: 0, interest: 0, t: 0, chase: null, wakeT: 0, popT: 0, trail: [], bub: [] }; this.setState('lure'); }
     else {
       this.float = { x: to.x, z: to.z, sink: 0, dip: 0, settle: 1, nib: 0 };
       this.setState('wait');
@@ -2056,36 +2083,118 @@ const pond = {
     audio.swish(); this.setState('idle');
   },
 
-  /* ----- lure retrieve ----- */
+  /* ----- lure retrieve (官方 2026-11-25：拋出後轉捲線器把路亞收回；依數值表爆水花，鉤中才顯示「中魚」) ----- */
   updateLure(dt) {
     const L = this.lure; if (!L) return;
-    const bait = BAITS[S.equip.bait];
-    const r = this.reel;
-    const sp = r * 1.6;
-    if (this.lureStrike) {
-      // a fish hit the lure: 揚竿 within three seconds
-      const ls = this.lureStrike; ls.t += dt;
-      if (ls.t > BITE_WINDOW) { this.lureStrike = null; this.banner = null; say('魚吐掉假餌跑了…'); }
-      return;
-    }
-    if (sp > 0) { const d = Math.hypot(L.x, L.z); L.x -= L.x / d * sp * dt; L.z -= L.z / d * sp * dt; }
-    L.depth = lerp(L.depth, r > .05 ? .4 : 1, dt);
-    L.wob += dt * (4 + r * 10);
+    const bait = BAITS[S.equip.bait] || {}, top = bait.lure === 'fishing/lure-popper';
+    L.t += dt;
+    // reeling pulls the lure in toward the rod; when the reel stops it slows down and sinks (a popper stays on top)
+    L.v = lerp(L.v, this.reel * 1.6, clamp(dt * 5, 0, 1));
+    const d = Math.hypot(L.x, L.z) || 1;
+    if (L.v > .01) { L.x -= L.x / d * L.v * dt; L.z -= L.z / d * L.v * dt; }
+    L.depth = top ? 0 : clamp(L.depth + (L.v > .2 ? -(L.v - .2) * .8 : .25) * dt, .12, 1);
+    L.wob += dt * (2.5 + L.v * 15);                                                   // tail beat speeds up with the retrieve
+    L.amp = lerp(L.amp, .08 + clamp(L.v / 1, 0, 1) * .42, clamp(dt * 4, 0, 1));       // and swings wider
     this.line.L = Math.hypot(L.x, L.z) * 1.6;
-    // fish chase a retrieve near the lure's sweet speed
-    const ideal = bait.speed ?? .5;
-    const quality = Math.max(0, 1 - Math.abs(r - ideal) / .55) * (r > .05 ? 1 : .15);
-    L.interest += (quality * .6 - .08) * dt;
-    L.interest = clamp(L.interest, 0, 1.2);
-    if (r > .05 && Math.random() < .02) { const pt = proj(L.x, L.z); water.ripple(pt.x, pt.y, .12); }
-    if (L.interest > 1 && Math.random() < dt * 1.6) {
-      const ch = this.pickSpecies(); const pt = proj(L.x, L.z);
-      water.ripple(pt.x, pt.y, 1); this.addSplash(pt.x, pt.y, pt.f, 1); audio.splash(.7); audio.bite();
-      this.banner = { k: 'get', t: 0 }; try { navigator.vibrate && navigator.vibrate(60); } catch (e) {}
-      this.lureStrike = { t: 0, sp: ch.sp, golden: ch.golden, x: L.x, z: L.z };
-      return;
+    const pt = proj(L.x, L.z);
+    // wake on the surface, bubbles from a lure running under it, pops from a popper
+    L.wakeT -= dt;
+    if (L.v > .12 && L.wakeT <= 0 && (top || L.depth < .5)) { L.wakeT = .14; L.trail.push({ x: L.x, z: L.z, t: 0 }); water.ripple(pt.x, pt.y, .05 + L.v * .07); }
+    if (!top && L.v > .1 && Math.random() < dt * (2 + L.v * 5)) L.bub.push({ x: pt.x + rnd(-6, 6) * pt.f, y: pt.y + rnd(-4, 4) * pt.f, r: rnd(1.2, 2.6) * (.6 + pt.f), t: 0 });
+    if (top && this.reel > .55 && (L.popT -= dt) <= 0) { L.popT = .5; this.addSplash(pt.x, pt.y, pt.f * .45, .55); this.spray(pt.x, pt.y, 5, .5); audio.plop(); }
+    for (const w of L.trail) w.t += dt; L.trail = L.trail.filter(w => w.t < 1.3);
+    for (const q of L.bub) q.t += dt; L.bub = L.bub.filter(q => q.t < .9);
+    // 數值表：收線速度接近這個假餌的最佳速度，魚才會被吸引；鉤到哪種魚依假餌的釣獲率
+    const ideal = bait.speed ?? .5, rate = L.v / 1.6;
+    L.q = L.v > .08 ? Math.max(0, 1 - Math.abs(rate - ideal) / .45) : 0;
+    L.interest = clamp(L.interest + (L.q * .5 - .09) * dt, 0, 1.2);
+    let C = L.chase;
+    if (!C && L.interest > .45 && L.z > 2.4) {
+      const ch = this.pickSpecies();
+      if (ch.sp) { const side = Math.random() < .5 ? -1 : 1; C = L.chase = { sp: ch.sp, golden: ch.golden, x: L.x + side * rnd(.8, 1.6), z: L.z + rnd(1.2, 2.2), h: 0, phase: 'chase', t: 0, alpha: 0, len: (FISH[ch.sp].min + FISH[ch.sp].max) * .55, willBite: Math.random() < .75, giveUp: rnd(1.8, 3.4) }; C.h = Math.atan2(L.z - C.z, L.x - C.x); }
     }
-    if (L.z < 1.2) { say('收線完成，再拋一次吧！'); this.retrieve(); }
+    if (C) {
+      C.t += dt;
+      if (C.phase === 'chase') {
+        // follows just behind the lure, weaving a little
+        C.alpha = Math.min(.7, C.alpha + dt * .6);
+        const tx = L.x + Math.sin(C.t * 2.1) * .12, tz = L.z + .55, dx = tx - C.x, dz = tz - C.z, dd = Math.hypot(dx, dz);
+        let dh = Math.atan2(dz, dx) - C.h; dh = Math.atan2(Math.sin(dh), Math.cos(dh)); C.h += clamp(dh, -dt * 3, dt * 3);
+        const v = Math.min(2.4, Math.max(L.v * 1.05, dd * 1.6));
+        C.x += Math.cos(C.h) * v * dt; C.z += Math.sin(C.h) * v * dt; C.spd = v;
+        // some fish only follow and turn away; the rest strike once they are close and fired up
+        if (L.interest < .18 || (!C.willBite && C.t > C.giveUp)) { C.phase = 'leave'; C.t = 0; L.interest = Math.min(L.interest, .35); }
+        else if (C.willBite && dd < .55 && L.interest >= 1 && Math.random() < dt * 2.4) { this.lureHit(); return; }
+      } else {
+        C.h += dt * .8; C.x += Math.cos(C.h) * 1.4 * dt; C.z += Math.sin(C.h) * 1.4 * dt + dt * .6; C.alpha = Math.max(0, C.alpha - dt * .45);
+        if (C.alpha <= 0) L.chase = null;
+      }
+    }
+    if (d < 1.35) { say('路亞收回來了，再拋一次吧！'); this.retrieve(); }
+  },
+  // a fish hits the lure: the water bursts; only a fish that is really hooked shows 「中魚」
+  lureHit() {
+    const L = this.lure, C = L.chase, pt = proj(L.x, L.z);
+    // 爆水花: a burst readable even far out (scaled up with distance like the lure)
+    const k = .55 + pt.f * 1.5;
+    water.ripple(pt.x, pt.y, 1.4); this.addSplash(pt.x, pt.y, k * 1.25, 1); this.addSplash(pt.x + rnd(-30, 30) * k, pt.y + 5, k * .85, .85); this.addSplash(pt.x + rnd(-30, 30) * k, pt.y + 3, k * .7, .7);
+    this.spray(pt.x, pt.y, 40, k * 1.5); audio.splash(.95); this.camShake = .35;
+    this.burst = { x: L.x, z: L.z, t: 0 };
+    try { navigator.vibrate && navigator.vibrate(80); } catch (e) {}
+    if (Math.random() < HOOK_RATE) {
+      this.hook(C.sp, { x: L.x, z: L.z }, C.golden);
+      if (!this.banner || this.banner.k !== 'gold') this.banner = { k: 'get', t: 0, hooked: true };
+      audio.bite();
+    } else {
+      C.phase = 'leave'; C.t = 0; C.h += Math.PI * .8; L.interest = .3; L.v *= .4;
+      say('魚撲空了！繼續收線');
+    }
+  },
+  // the lure: head toward the rod (down the screen), tail swinging side to side as it is reeled
+  drawLureSprite(c, L, a) {
+    const key = (BAITS[S.equip.bait] || {}).lure || 'fishing/lure-spoon';
+    const u = A.man.ui[key], tx = u && A.tex['atlas:' + u.a]; if (!tx) return;
+    const pt = proj(L.x, L.z), d = Math.hypot(L.x, L.z) || 1, q = proj(L.x - L.x / d * .6, L.z - L.z / d * .6);
+    const s = .45 + pt.f * 1.3, w = u.w / u.s * s, h = u.h / u.s * s;   // a little larger than life far out so it stays readable
+    const head = Math.atan2(q.y - pt.y, q.x - pt.x), sw = Math.sin(L.wob) * L.amp;
+    c.save(); c.globalAlpha = a;
+    c.translate(pt.x - Math.cos(head + Math.PI / 2) * Math.sin(L.wob) * L.amp * 6 * pt.f, pt.y);
+    c.rotate(head + Math.PI / 2 + sw);
+    c.drawImage(tx, u.x, u.y, u.w, u.h, -w / 2, -h * .08, w, h);
+    c.restore();
+  },
+  // wake rings behind the lure and bubbles breaking the surface (drawn on the surface layer)
+  drawLureWake() {
+    const L = this.lure; if (!L) return;
+    ctx.save(); ctx.strokeStyle = '#eafcff'; ctx.lineCap = 'round';
+    for (const w of L.trail) {
+      const p = proj(w.x, w.z), k = w.t / 1.3, rx = (8 + k * 60) * (.45 + p.f * 1.3), ry = rx * .3;
+      ctx.globalAlpha = (1 - k) * .55; ctx.lineWidth = Math.max(1.2, 3 * (.45 + p.f) * (1 - k * .5));
+      ctx.beginPath(); ctx.ellipse(p.x, p.y, rx, ry, 0, Math.PI * 1.05, Math.PI * 1.95); ctx.stroke();
+    }
+    ctx.fillStyle = '#f2fdff';
+    for (const b of L.bub) { ctx.globalAlpha = (1 - b.t / .9) * .7; ctx.beginPath(); ctx.arc(b.x, b.y - b.t * 4, b.r, 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore();
+    // the fish chasing it, just under the surface behind the lure (drawn on the surface layer so it reads on the swamp water)
+    const C = L.chase;
+    if (C && C.alpha > 0) {
+      // while chasing it is drawn one body length behind the lure on screen (depth squeezes the real gap to a few pixels)
+      let cx = C.x, cz = C.z;
+      if (C.phase === 'chase') {
+        const lp = proj(L.x, L.z), len = this.fishScale(C.sp, C.len * 1.2, lp.f) * ((FISH_ART[C.sp] || {}).bodyF || 180);
+        const y2 = Math.max(HZ + 8, lp.y - len * .62 - 10 * (.45 + lp.f * 1.3)), f2 = (y2 - HZ) / (1255 - HZ);
+        cz = 3.2 / f2 - 3.2; cx = L.x + (C.x - L.x) * .5;
+      }
+      const cp = proj(cx, cz), sc = this.fishScale(C.sp, C.len * 1.2, cp.f), q2 = proj(cx + Math.cos(C.h) * .3, cz + Math.sin(C.h) * .3);
+      ctx.save(); ctx.globalAlpha = C.alpha * .5; ctx.fillStyle = '#03140c';   // its dark shape in the water
+      ctx.beginPath(); ctx.ellipse(cp.x, cp.y + 3 * cp.f, sc * 78, sc * 22, Math.atan2(q2.y - cp.y, q2.x - cp.x), 0, Math.PI * 2); ctx.fill(); ctx.restore();
+      ctx.save(); ctx.filter = 'brightness(1.45) contrast(1.15)';
+      this.fishUW(C.sp, cx, cz, C.h, C.len * 1.2, Math.min(1, C.alpha * 1.4), this.t * (8 + (C.spd || .5) * 12), 0, ctx);
+      ctx.restore();
+    }
+    // the lure runs just under the surface: drawn crisp on top, fading and tinted as it sinks (a popper sits on top)
+    const top = (BAITS[S.equip.bait] || {}).lure === 'fishing/lure-popper';
+    this.drawLureSprite(ctx, L, top ? 1 : 1 - L.depth * .55);
   },
 
   /* ----- fight (spec: 釣力值 P, 魚力值 F, 體力值 U, 承受力 S) ----- */
@@ -2254,6 +2363,7 @@ const pond = {
     this.t += dt; this.stT += dt;
     this.updateDock(dt);
     this.camShake = Math.max(0, this.camShake - dt);
+    if (this.burst && (this.burst.t += dt) > 1.1) this.burst = null;
     if (this.banner) { this.banner.t += dt; if (this.banner.t > (this.banner.k === 'gold' ? 2 : 1.4)) this.banner = null; }
     // ambient fish
     for (const s of this.shadows) { s.age += dt; s.h += Math.sin(this.t * .3 + s.z) * dt * .2; s.x += Math.cos(s.h) * s.v * dt; s.z += Math.sin(s.h) * s.v * dt; }
@@ -2330,18 +2440,19 @@ const pond = {
     const wrote = water.render(this.t, DTF, { sunX: LW / 2 + 110 + Math.sin(this.t * .05) * 30, sun: .7, calm: this.st === 'fight' ? 1.15 : 1 });
     const camPx = this.camW * 300;
     if (!wrote) this.tiled(p.bgKey + '-bg-water', WATER_Y, LH - WATER_Y, camPx * .6);
-    const p1 = this.newP1();
+    const p1 = this.newP1(), p3 = this.newP3();
     // sky & far shore (far away: they slide only a little as the camera pans)
-    if (p1) this.strip('p1-top', 0, camPx * .1); else this.tiled(p.bgKey + '-bg-top', 0, 240, camPx * .1);
+    if (p1) this.strip('p1-top', 0, camPx * .1); else if (p3) this.strip('p3-top', 0, camPx * .1); else this.tiled(p.bgKey + '-bg-top', 0, 240, camPx * .1);
     if (p.id === 1) ['pond-cloud1', 'pond-cloud2', 'pond-cloud3'].forEach((k, i) => { const W2 = LW + 260, x = ((((this.t * (4 + i * 2) + i * 260 - camPx * .05) % W2) + W2) % W2) - 200; img(k, x, 8 + i * 22, { a: .9, s: .8 }); });
     const fogM = A.man.img[p.bgKey + '-fog'];
-    if (fogM) this.tiled(p.bgKey + '-fog', 120 + Math.sin(this.t * .2) * 6, fogM.h * LW / fogM.w, camPx * .1, .35 + .1 * Math.sin(this.t * .3));
+    if (fogM) this.tiled(p.bgKey + '-fog', 120 + Math.sin(this.t * .2) * 6, fogM.h * LW / fogM.w, camPx * .1, (p3 ? .16 : .35) + (p3 ? .05 : .1) * Math.sin(this.t * .3));   // a light mist over the swamp
     // atmospheric haze on the far water
     const hz = ctx.createLinearGradient(0, WATER_Y, 0, 460);
     hz.addColorStop(0, 'rgba(225,240,245,.28)'); hz.addColorStop(1, 'rgba(225,240,245,0)');
     ctx.fillStyle = hz; ctx.fillRect(0, WATER_Y, LW, 220);
 
     if (!wrote) { ctx.save(); ctx.globalAlpha = .75; ctx.drawImage(UW, 0, WATER_Y, LW, LH - WATER_Y); ctx.restore(); }
+    if (p3) this.drawP3Logs();
     // splashes, spray and leaping fish above the surface
     for (const s of this.splashes) frame('splash', s.t * 24, s.x - water.cam * depthF(s.y), s.y + 10 * s.s, { s: s.s * .9, ax: .5, ay: .82, a: s.a * (1 - s.t / 1.3) });
     this.drawSurfaceFight();
@@ -2351,11 +2462,20 @@ const pond = {
       for (const d of this.drops) { const dx = d.x - (water.cam - (d.cam || 0)) * depthF(d.floor); ctx.globalAlpha = clamp(1 - d.t / 1.2, 0, .85); ctx.fillStyle = '#eafcff'; ctx.beginPath(); ctx.ellipse(dx, d.y, d.r, d.r * 1.4, 0, 0, Math.PI * 2); ctx.fill(); }
       ctx.restore();
     }
-    // float
+    // float / the lure's wake / the foam ring of a strike
     if (this.float && (this.st === 'wait')) this.drawFloat();
+    if (this.burst) {
+      const B = this.burst, bp = proj(B.x, B.z), k = .55 + bp.f * 1.5, u = B.t / 1.1;
+      ctx.save(); ctx.strokeStyle = '#f4feff'; ctx.fillStyle = 'rgba(240,252,255,.35)';
+      for (const [r0, w] of [[1, 5], [.65, 3]]) { ctx.globalAlpha = (1 - u) * .8; ctx.lineWidth = w * k * (1 - u * .6); ctx.beginPath(); ctx.ellipse(bp.x, bp.y, (18 + u * 90) * k * r0, (6 + u * 28) * k * r0, 0, 0, Math.PI * 2); ctx.stroke(); }
+      ctx.globalAlpha = (1 - u) * .7; ctx.beginPath(); ctx.ellipse(bp.x, bp.y, (16 + u * 40) * k, (5 + u * 12) * k, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+    }
+    if (this.lure && this.st === 'lure') this.drawLureWake();
     // dock / foreground
     const wg = A.man.img[p.bgKey + '-wood-grass'];
     if (p1) this.drawP1Dock(camPx);
+    else if (p3) this.drawP3Shore(camPx);
     else if (wg) this.tiled(p.bgKey + '-wood-grass', LH - wg.h * LW / wg.w, wg.h * LW / wg.w, camPx);
     // landing fish swings in from the water behind the angler's shoulder
     if (this.st === 'land') this.drawLandingFish();
@@ -2395,10 +2515,7 @@ const pond = {
       this.fishUW(F.sp, F.x, F.z, F.h, F.len, 1, F.anim, F.phase === 'under' ? .7 : F.depth ?? .4);
     }
     if (this.lure && this.st === 'lure') {
-      const L = this.lure; const pt = proj(L.x, L.z);
-      const key = (BAITS[S.equip.bait] || {}).lure || 'fishing/lure-spoon';
-      const u = A.man.ui[key], tx = u && A.tex['atlas:' + u.a];
-      if (tx) { const s = pt.f * 1.4, w = u.w / u.s * s, h = u.h / u.s * s; c.save(); c.globalAlpha = .95 - L.depth * .3; c.translate(pt.x + Math.sin(L.wob) * 4 * pt.f, pt.y + 6); c.rotate(Math.sin(L.wob * .7) * .4 + Math.PI / 2); c.drawImage(tx, u.x, u.y, u.w, u.h, -w / 2, -h / 2, w, h); c.restore(); }
+      const L = this.lure, C = L.chase;
     }
     // the water column tints everything under the surface
     c.setTransform(1, 0, 0, 1, 0, 0);
@@ -2414,7 +2531,7 @@ const pond = {
     const pt = proj(F.x, F.z), s = this.fishScale(F.sp, F.len, pt.f), half = ((FISH_ART[F.sp] || {}).bodyF || 180) * .5 * s;
     return { x: pt.x + Math.cos(F.h) * half, y: pt.y - Math.sin(F.h) * .55 * half };
   },
-  fishUW(sp, x, z, h, len, alpha, animT, depth = .4) {
+  fishUW(sp, x, z, h, len, alpha, animT, depth = .4, c = uwx) {
     const pt = proj(x, z); if (pt.y < HZ + 4) return;
     const m = A.man.anim['fight-' + sp]; if (!m || !A.tex['anim:fight-' + sp]) return;
     const sx = Math.cos(h), sy = -Math.sin(h) * .55;
@@ -2423,7 +2540,6 @@ const pond = {
     const per = m.per || 12, fr = Math.floor(animT) % per;
     const s = this.fishScale(sp, len, pt.f) * (1 - depth * .18);
     const a0 = alpha * (1 - depth * .5);
-    const c = uwx;
     if (pt.y > 600) { // its shadow on the lake bed in the shallows
       c.save(); c.globalAlpha = a0 * .3; c.fillStyle = '#062a24'; const off = (12 + depth * 40) * pt.f * 2;
       c.beginPath(); c.ellipse(pt.x + off * .35, pt.y + off, s * 52, s * 15, 0, 0, Math.PI * 2); c.fill(); c.restore();
@@ -2977,7 +3093,7 @@ const pond = {
     const fighting = st === 'fight' || st === 'hookset';
     if (fighting || st === 'land') this.drawFightTop(); else hudTop();
     // banners
-    if (this.banner && this.banner.k === 'get' && this.view === 'surface' && st !== 'hookset') {
+    if (this.banner && this.banner.k === 'get' && this.view === 'surface' && (st !== 'hookset' || this.banner.hooked)) {
       const k = easeBack(clamp(this.banner.t / .3, 0, 1)); ui('fishing/get-fish', C, 520, { ax: .5, ay: .5, s: k, a: 1 - clamp((this.banner.t - 1.1) / .3, 0, 1) });
       if (this.lureStrike || (this.approach && this.approach.phase === 'bite')) hint(`快按「揚竿」！（${Math.max(0, BITE_WINDOW - (this.lureStrike ? this.lureStrike.t : this.approach.biteT)).toFixed(1)} 秒）`, 600);
     }
@@ -3045,7 +3161,13 @@ const pond = {
           const pb = btn('pull', 'fishing/button-pull', 600 + RS, by - 12, { s: 1.05, glow: true, glowColor: 'rgba(120,255,140,.95)' });
           if (pb.click || (keys.ArrowUp && !this._spaceLatch)) this.strike();
           this._spaceLatch = keys.ArrowUp;
-        } else hint('順時針轉動捲線器收線，速度適中魚才會追');
+        } else {
+          const L = this.lure, ideal = (BAITS[S.equip.bait] || {}).speed ?? .5;
+          if (L && L.chase && L.chase.phase === 'chase') hint('有魚在追！保持速度繼續收線', 335);
+          else if (!L || L.v < .08) hint('順時針轉動捲線器，把路亞收回來', 335);
+          else if (L.q > .55) hint('速度剛好，魚會來追咬', 335);
+          else hint(L.v / 1.6 > ideal ? '收太快了，放慢一點' : '收太慢了，快一點', 335);
+        }
       }
       if (st === 'wait' && btn('tackle2', 'fishing/button-tackle', 450 + RS, by, { s: .9 }).click) openModal(tackleModal());
     } else if (fighting) {
@@ -3115,6 +3237,13 @@ const pond = {
     } else {
       ctx.save(); ctx.fillStyle = 'rgba(30,40,50,.6)'; ctx.beginPath(); ctx.arc(cx, cy, 40, 0, Math.PI * 2); ctx.fill(); ctx.restore();
       text(this.lure ? Math.max(0, this.line.L).toFixed(1) + 'm' : '', cx, cy, { size: 22, align: 'center', weight: 900, color: '#fff' });
+    }
+    // the lure's sweet retrieve speed, as a band around the reel
+    if (this.st === 'lure') {
+      const ideal = (BAITS[S.equip.bait] || {}).speed ?? .5, a0 = -Math.PI / 2 + Math.PI * 2 * Math.max(0, ideal - .14), a1 = -Math.PI / 2 + Math.PI * 2 * Math.min(1, ideal + .14);
+      const inBand = this.lure && this.lure.q > .55;
+      ctx.save(); ctx.lineCap = 'round'; ctx.lineWidth = 7; ctx.strokeStyle = inBand ? 'rgba(255,236,120,.95)' : 'rgba(255,226,110,.6)';
+      ctx.shadowColor = 'rgba(0,0,0,.45)'; ctx.shadowBlur = 4; ctx.beginPath(); ctx.arc(cx, cy, 141, a0, a1); ctx.stroke(); ctx.restore();
     }
     // reel speed indicator
     if (this.reel > .02) { ctx.save(); ctx.strokeStyle = `rgba(140,255,200,${.3 + this.reel * .6})`; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(cx, cy, 128, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * this.reel); ctx.stroke(); ctx.restore(); }
@@ -3381,7 +3510,8 @@ async function enterPond(p, paid) {
   loading.show('前往' + p.name + '…');
   const sp = p.fish, ak = RODS[S.equip.rod] && angKey(S.char, RODS[S.equip.rod].code);
   await ensureProgress([...(ak ? ['img:' + ak] : []), `img:${p.bgKey}-bg-water`, `img:${p.bgKey}-bg-top`, `img:${p.bgKey}-wood-grass`, ...charAssets(S.char), 'img:girl-idle', 'img:girl-fight', 'img:girl-shadow', 'anim:splash',
-    ...(p.id === 1 ? ['img:pond-cloud1', 'img:pond-cloud2', 'img:pond-cloud3', 'img:p1-top', 'img:p1-water', 'img:p1-floor', 'img:p1-rail', 'img:p1-rail-broken', 'img:p1-wood', 'img:p1-grass', 'img:p1-grass2'] : [`img:${p.bgKey}-fog`]), ...sp.map(k => 'anim:fight-' + k)], v => loading.p = v);
+    ...(p.id === 1 ? ['img:pond-cloud1', 'img:pond-cloud2', 'img:pond-cloud3', 'img:p1-top', 'img:p1-water', 'img:p1-floor', 'img:p1-rail', 'img:p1-rail-broken', 'img:p1-wood', 'img:p1-grass', 'img:p1-grass2'] : [`img:${p.bgKey}-fog`]),
+    ...(p.id === 3 ? ['img:p3-top', 'img:p3-water', 'img:p3-floor', 'img:p3-grass', 'img:p3-wood1', 'img:p3-wood2', 'img:p3-wood3', 'img:p3-wood4'] : []), ...sp.map(k => 'anim:fight-' + k)], v => loading.p = v);
   loading.hide();
   go(pond, p);
 }
