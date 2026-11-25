@@ -304,6 +304,8 @@ function parseSave(v) {
 // so later updates never apply it again and the player spends normally afterwards. Keep old entries; add new ids only.
 const GRANTS = [
   { id: 'gavin-gold-1000-20261125', acct: 'gavin', apply: () => { S.gold = 1000; } },   // 2026-11-25：帳號 gavin 金幣改為 1000
+  // 2026-11-25：帳號 gavin 等級改為 50 等（經驗值設為 50 等的起點；之後照常累積經驗值升等，週／月排行經驗值不受影響）
+  { id: 'gavin-lv50-20261125', acct: 'gavin', apply: () => { S.ep = epForLv(50); } },
 ];
 function applyGrants(user) {
   const acct = user && !user.isAnonymous && user.email ? user.email.split('@')[0].toLowerCase() : '';
