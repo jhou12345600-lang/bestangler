@@ -1801,7 +1801,7 @@ const pond = {
     audio.ambience(.12); audio.bgm('fish');
     // a loose school of small fish cruising the shallows
     const small = p.fish.slice().sort((a, b) => FISH[a].max - FISH[b].max)[0];
-    this.school = { sp: small, cx: rnd(-3, 3), cz: rnd(5, 9), h: rnd(0, 6.28), fish: Array.from({ length: 7 }, () => ({ ox: rnd(-.9, .9), oz: rnd(-.6, .6), ph: rnd(0, 20), len: rnd(FISH[small].min, FISH[small].max * .7), d: rnd(.2, .6) })) };
+    this.school = { sp: small, cx: this.wx + rnd(-3, 3), cz: rnd(5, 9), h: rnd(0, 6.28), fish: Array.from({ length: 7 }, () => ({ ox: rnd(-.9, .9), oz: rnd(-.6, .6), ph: rnd(0, 20), len: rnd(FISH[small].min, FISH[small].max * .7), d: rnd(.2, .6) })) };
     // pull in this pond's species art in the background
     const sp = p.fish;
     ensure(sp.flatMap(k => ['anim:fight-' + k, 'anim:land-' + k, 'anim:under-' + k]).concat(['anim:splash', 'anim:underwave', 'img:uw-bg', 'img:fight-bed', 'img:fight-surface', 'anim:angry', 'img:victory', 'img:victory-light']));
@@ -1879,18 +1879,40 @@ const pond = {
   newP1() { return this.p && this.p.id === 1 && !!A.tex['img:p1-top'] && !!A.tex['img:p1-floor']; },
   // 路亞池 (官方 2026-11-25 新版美術：沼澤、枯木、石岸)
   newP3() { return this.p && this.p.id === 3 && !!A.tex['img:p3-top'] && !!A.tex['img:p3-floor']; },
-  // dead wood lying in the swamp: placed in pond coordinates so they sit in the water's perspective
-  // (bigger when nearer, sliding with the camera like the fish and the lure), bobbing very slightly
-  P3_LOGS: [['p3-wood3', -6.5, 12, 1], ['p3-wood1', 5.5, 15, 0], ['p3-wood4', -3.6, 7.4, 0], ['p3-wood2', 7.4, 8.4, 1], ['p3-wood4', 1.6, 18.5, 1],
-            ['p3-wood1', -12.5, 9, 1], ['p3-wood3', 14, 13, 0], ['p3-wood4', 11.5, 6, 1], ['p3-wood2', -17, 13.5, 0], ['p3-wood3', 20, 9, 1], ['p3-wood1', -22, 7, 0]],
-  drawP3Logs() {
-    const logs = this.P3_LOGS.map(l => [l, proj(l[1], l[2])]).sort((a, b) => a[1].y - b[1].y);
-    for (const [[k, , z, flip], pt] of logs) {
+  // dead wood lying in the swamp (官方：水裡的樹不會動). Pond coordinates, not the angler's: X is along the dock
+  // (the same units as walking), so they stay put and slide with the water as the camera pans. Two depth bands,
+  // staggered so no two overlap, covering the whole walkway and what a wide screen sees beyond its ends.
+  P3_LOGS: [['p3-wood1', -27, 15.5, 0], ['p3-wood3', -16, 16.5, 1], ['p3-wood4', -5.5, 15, 0], ['p3-wood1', 5, 16.5, 1], ['p3-wood3', 16, 15.5, 0], ['p3-wood2', 27, 16, 1],
+            ['p3-wood2', -21.5, 9, 1], ['p3-wood4', -11, 8.4, 1], ['p3-wood3', 0, 9.6, 0], ['p3-wood2', 10.5, 8.8, 0], ['p3-wood4', 21, 8.2, 0], ['p3-wood3', 31, 9.4, 1]],
+  logPts() {
+    return this.P3_LOGS.map(l => [l, proj(l[1] - this.wx, l[2])]).sort((a, b) => a[1].y - b[1].y);
+  },
+  // pass 'far': logs behind the lure (all of them when no lure is out); 'near': logs in front of it, drawn over the lure
+  drawP3Logs(pass) {
+    const ly = this.lure && this.st === 'lure' ? proj(this.lure.x, this.lure.z).y : Infinity;
+    for (const [[k, , z, flip], pt] of this.logPts()) {
+      if ((pass === 'near') !== (pt.y > ly)) continue;
       const m = A.man.img[k]; if (!m) continue;
       const s = Math.min(1.1, pt.f * 3.6), w = m.w * s, h = m.h * s;
       if (pt.x + w / 2 < -40 || pt.x - w / 2 > LW + 40) continue;
-      const bob = Math.sin(this.t * .7 + z) * 1.5 * pt.f;
+      const bob = Math.sin(this.t * .7 + z) * 1.2 * pt.f;
       img(k, pt.x - w / 2, pt.y - h * .72 + bob, { w, h, flip: !!flip });
+    }
+  },
+  // life around the dead wood: lapping rings at the logs and now and then a fish rising beside one
+  updateP3(dt) {
+    if ((this._lapT = (this._lapT || 0) - dt) <= 0) {
+      this._lapT = rnd(.5, 1.2);
+      const vis = this.logPts().filter(([l, pt]) => pt.x > 0 && pt.x < LW);
+      if (vis.length) { const [l, pt] = pick(vis), m = A.man.img[l[0]], w = (m ? m.w : 500) * Math.min(1.1, pt.f * 3.6); water.ripple(pt.x + rnd(-.4, .4) * w, pt.y + rnd(-2, 6) * pt.f, rnd(.06, .12)); }
+    }
+    if ((this._riseT = (this._riseT ?? rnd(4, 8)) - dt) <= 0) {
+      this._riseT = rnd(6, 13);
+      const vis = this.logPts().filter(([l, pt]) => pt.x > 40 && pt.x < LW - 40);
+      if (vis.length) {
+        const [l, pt] = pick(vis), m = A.man.img[l[0]], w = (m ? m.w : 500) * Math.min(1.1, pt.f * 3.6), x = pt.x + rnd(-.45, .45) * w, y = pt.y + rnd(4, 18) * pt.f;
+        water.ripple(x, y, rnd(.35, .55)); this.addSplash(x, y, .3 + pt.f * .6, .5); this.spray(x, y, 6, .4 + pt.f * .5); audio.plop();
+      }
     }
   },
   // rocky shore in front, with grass tufts growing behind the stones
@@ -2017,7 +2039,7 @@ const pond = {
     const ang = rnd(0, Math.PI * 2);
     this.approach = { sp: ch.sp, golden: ch.golden, t: -delay, x: this.float.x + Math.cos(ang) * 3.2, z: this.float.z + Math.sin(ang) * 2.4 + 1, nibbles: rint(0, 3), phase: 'come', pt: 0, heading: 0, alpha: 0, biteT: 0 };
     // ambient fish passing far away for life in the pond
-    if (Math.random() < .7) this.shadows.push({ sp: pick(this.p.fish), x: rnd(-6, 6), z: rnd(5, 14), h: rnd(0, Math.PI * 2), v: rnd(.35, .7), life: rnd(8, 14), age: 0, len: 0 });
+    if (Math.random() < .7) this.shadows.push({ sp: pick(this.p.fish), x: this.wx + rnd(-6, 6), z: rnd(5, 14), h: rnd(0, Math.PI * 2), v: rnd(.35, .7), life: rnd(8, 14), age: 0, len: 0 });
   },
   updateWait(dt) {
     const f = this.float; if (!f) return;
@@ -2375,11 +2397,14 @@ const pond = {
     const sc = this.school;
     if (sc) {
       sc.h += Math.sin(this.t * .23) * dt * .35;
-      if (sc.cz < 4 || sc.cz > 15 || Math.abs(sc.cx) > 6) sc.h = Math.atan2(10 - sc.cz, -sc.cx);
+      // the school lives in pond coordinates (sc.cx along the dock); it drifts back toward the angler's stretch of water
+      const rx = sc.cx - this.wx;
+      if (sc.cz < 4 || sc.cz > 15 || Math.abs(rx) > 7) sc.h = Math.atan2(10 - sc.cz, -rx);
       sc.cx += Math.cos(sc.h) * .35 * dt; sc.cz += Math.sin(sc.h) * .35 * dt;
-      if (this.fish && Math.hypot(this.fish.x - sc.cx, this.fish.z - sc.cz) < 2.5) { sc.h = Math.atan2(sc.cz - this.fish.z, sc.cx - this.fish.x); sc.cx += Math.cos(sc.h) * 1.4 * dt; sc.cz += Math.sin(sc.h) * 1.4 * dt; }
+      if (this.fish && Math.hypot(this.fish.x - rx, this.fish.z - sc.cz) < 2.5) { sc.h = Math.atan2(sc.cz - this.fish.z, rx - this.fish.x); sc.cx += Math.cos(sc.h) * 1.4 * dt; sc.cz += Math.sin(sc.h) * 1.4 * dt; }
     }
     if (Math.random() < dt * .18) { const z = rnd(4, 18), x = rnd(-5, 5), pt = proj(x, z); water.ripple(pt.x, pt.y, rnd(.12, .28)); }
+    if (this.newP3()) this.updateP3(dt);
     this.friendRipples(dt);
     // room fee ran out (路亞池 / 戰鬥池): ask once the line is in
     if (this.p.fee.per === 'room' && this.st === 'idle' && !roomValid(this.p) && !modals.length && !this._roomAsked) { this._roomAsked = true; openModal(roomModal(this.p, true)); }
@@ -2452,7 +2477,7 @@ const pond = {
     ctx.fillStyle = hz; ctx.fillRect(0, WATER_Y, LW, 220);
 
     if (!wrote) { ctx.save(); ctx.globalAlpha = .75; ctx.drawImage(UW, 0, WATER_Y, LW, LH - WATER_Y); ctx.restore(); }
-    if (p3) this.drawP3Logs();
+    if (p3) this.drawP3Logs('far');
     // splashes, spray and leaping fish above the surface
     for (const s of this.splashes) frame('splash', s.t * 24, s.x - water.cam * depthF(s.y), s.y + 10 * s.s, { s: s.s * .9, ax: .5, ay: .82, a: s.a * (1 - s.t / 1.3) });
     this.drawSurfaceFight();
@@ -2471,7 +2496,7 @@ const pond = {
       ctx.globalAlpha = (1 - u) * .7; ctx.beginPath(); ctx.ellipse(bp.x, bp.y, (16 + u * 40) * k, (5 + u * 12) * k, 0, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
     }
-    if (this.lure && this.st === 'lure') this.drawLureWake();
+    if (this.lure && this.st === 'lure') { this.drawLureWake(); if (p3) this.drawP3Logs('near'); }
     // dock / foreground
     const wg = A.man.img[p.bgKey + '-wood-grass'];
     if (p1) this.drawP1Dock(camPx);
@@ -2500,12 +2525,12 @@ const pond = {
     c.setTransform(.5, 0, 0, .5, 0, -WATER_Y * .5);
     const sc = this.school;
     if (sc) for (const f of sc.fish) {
-      const x = sc.cx + f.ox + Math.sin(this.t * .9 + f.ph) * .2, z = sc.cz + f.oz + Math.cos(this.t * .7 + f.ph) * .15;
+      const x = sc.cx - this.wx + f.ox + Math.sin(this.t * .9 + f.ph) * .2, z = sc.cz + f.oz + Math.cos(this.t * .7 + f.ph) * .15;
       this.fishUW(sc.sp, x, z, sc.h + Math.sin(this.t * 1.3 + f.ph) * .25, f.len, .55, this.t * 12 + f.ph, f.d);
     }
     for (const s of this.shadows) {
       const a = Math.min(1, s.age / 2, (s.life - s.age) / 2) * .6;
-      this.fishUW(s.sp, s.x, s.z, s.h, s.len || (FISH[s.sp].min + FISH[s.sp].max) / 2, a, this.t * 9, .55);
+      this.fishUW(s.sp, s.x - this.wx, s.z, s.h, s.len || (FISH[s.sp].min + FISH[s.sp].max) / 2, a, this.t * 9, .55);
     }
     const a = this.approach;
     if (a && a.t > 0 && this.st === 'wait') this.fishUW(a.sp, a.x, a.z, a.heading, (FISH[a.sp].min + FISH[a.sp].max) * .55, Math.min(1, a.alpha * 1.8), this.t * (6 + (a.spd || .4) * 14), a.phase === 'bite' ? .1 : .3);
