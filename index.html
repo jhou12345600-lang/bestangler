@@ -3639,7 +3639,7 @@ async function enterPond(p, paid) {
   loading.show('前往' + p.name + '…');
   const sp = p.fish, ak = RODS[S.equip.rod] && angKey(S.char, RODS[S.equip.rod].code);
   const rkey = ak && RODS[S.equip.rod].kind !== 'pole' && A.man.meta.ang[ak + 'R'] ? ak + 'R' : null;
-  await ensureProgress([...(ak ? ['img:' + ak] : []), ...(rkey ? ['img:' + rkey] : []), `img:${p.bgKey}-bg-water`, `img:${p.bgKey}-bg-top`, `img:${p.bgKey}-wood-grass`, ...charAssets(S.char), 'img:girl-idle', 'img:girl-fight', 'img:girl-shadow', 'anim:splash',
+  await ensureProgress(['img:tackle-bg-lure', ...(ak ? ['img:' + ak] : []), ...(rkey ? ['img:' + rkey] : []), `img:${p.bgKey}-bg-water`, `img:${p.bgKey}-bg-top`, `img:${p.bgKey}-wood-grass`, ...charAssets(S.char), 'img:girl-idle', 'img:girl-fight', 'img:girl-shadow', 'anim:splash',
     ...(p.id === 1 ? ['img:pond-cloud1', 'img:pond-cloud2', 'img:pond-cloud3', 'img:p1-top', 'img:p1-water', 'img:p1-floor', 'img:p1-rail', 'img:p1-rail-broken', 'img:p1-wood', 'img:p1-grass', 'img:p1-grass2'] : [`img:${p.bgKey}-fog`]),
     ...(p.id === 3 ? ['img:p3-top', 'img:p3-water', 'img:p3-floor', 'img:p3-grass', 'img:p3-wood1', 'img:p3-wood2', 'img:p3-wood3', 'img:p3-wood4'] : []), ...sp.map(k => 'anim:fight-' + k)], v => loading.p = v);
   loading.hide();
@@ -3681,7 +3681,8 @@ function catchListModal() {
 }
 
 function tackleModal() {
-  const cats = ['rod', 'line', 'float', 'bait'];
+  ensure(['img:tackle-bg-lure']);
+  const allCats = ['rod', 'line', 'float', 'bait'];
   const names = { rod: '釣竿', line: '釣線', float: '浮標', bait: '魚餌' };
   const m = {
     cat: 'rod', off: 0,
@@ -3698,7 +3699,11 @@ function tackleModal() {
       dim();
       withPop(m, 360, 640, () => {
         const bx = 360, by = 640;
-        ui('fishing/POP-tackle/BG', bx, by, { ax: .5, ay: .5 });
+        // 路亞竿沒有浮標：浮標框（連同線上的浮標）不顯示
+        const lureRod = (RODS[S.equip.rod] || {}).kind === 'lure', cats = lureRod ? allCats.filter(c => c !== 'float') : allCats;
+        if (lureRod && m.cat === 'float') { m.cat = 'rod'; m.off = 0; }
+        if (lureRod && A.tex['img:tackle-bg-lure']) img('tackle-bg-lure', bx - 350, by - 460, { w: 700, h: 920 });
+        else ui('fishing/POP-tackle/BG', bx, by, { ax: .5, ay: .5 });
         const L = bx - 350, Tp = by - 460;
         // equipped slots (positions follow the board art)
         const slots = { line: [L + 148, Tp + 203], float: [L + 148, Tp + 367], bait: [L + 148, Tp + 533], rod: [L + 524, Tp + 252] };
@@ -4480,7 +4485,7 @@ function loop(now) {
 }
 
 /* ---------------- boot ---------------- */
-const BUILD = 'cda29cc747';   // stamped at deploy (tools/stamp_build.py); version.json holds the live one
+const BUILD = 'b007fdac9b';   // stamped at deploy (tools/stamp_build.py); version.json holds the live one
 (async function boot() {
   // a browser may keep an old copy of this page for a few minutes after an update: if the live build differs,
   // reload once from a fresh address so the newest version is what runs
