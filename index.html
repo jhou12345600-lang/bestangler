@@ -346,6 +346,7 @@ function ensure(list) { // list of 'img:key' | 'anim:key' | 'atlas:i'
     else if (kind === 'anim') src = A.man.anim[key] && A.man.anim[key].f;
     else if (kind === 'atlas') src = A.man.atlas[+key];
     if (!src) return Promise.resolve(null);
+    const v = A.man.ver && A.man.ver[src]; if (v) src += '?v=' + v;   // content hash: a new build never mixes with cached old images
     return (A.pending[id] = loadImg(src).then(im => (A.tex[id] = im)).catch(() => null));
   }));
 }
@@ -2057,7 +2058,7 @@ const pond = {
     const to = this.cast.to;
     const pt = proj(to.x, to.z);
     water.ripple(pt.x, pt.y, 1.1); this.addSplash(pt.x, pt.y, pt.f * 1.1, .8); audio.plop();
-    if (this.isLure()) { this.lure = { x: to.x, z: to.z, depth: 0, v: 0, wob: 0, amp: 0, interest: 0, t: 0, chase: null, wakeT: 0, popT: 0, trail: [], bub: [] }; this.setState('lure'); }
+    if (this.isLure()) { this.act = { seq: 'toReel', t: 0 }; this.lure = { x: to.x, z: to.z, depth: 0, v: 0, wob: 0, amp: 0, interest: 0, t: 0, chase: null, wakeT: 0, popT: 0, trail: [], bub: [] }; this.setState('lure'); }
     else {
       this.float = { x: to.x, z: to.z, sink: 0, dip: 0, settle: 1, nib: 0 };
       this.setState('wait');
@@ -2148,8 +2149,11 @@ const pond = {
     this.retrieve();
   },
   retrieve() {
+    const wasLure = this.st === 'lure';
     this.float = null; this.approach = null; this.lure = null; this.banner = null; this.lureStrike = null;
-    this.act = { seq: 'pull', t: 0 };   // 揚竿收線
+    // 揚竿收線; a cast rod (投竿) winds its line in with the reel instead
+    this.act = { seq: !wasLure && this.rod().kind === 'cast' && reelKey(angKey(S.char, this.rod().code), this.rod().code) ? 'reelIn' : 'pull', t: 0 };
+    if (this.act.seq === 'reelIn') { audio.reelSet(true); setTimeout(() => { if (this.st === 'idle') audio.reelSet(false); }, 1000); }
     audio.swish(); this.setState('idle');
   },
 
@@ -2723,7 +2727,14 @@ const pond = {
     const ACT = { pull: [33, 56, 24], strike: [33, 41, 30], throw: [86, 124, 24], big: [64, 70, 24] };
     if (this.st === 'land') return { key, n: Math.min(77, 71 + Math.floor(this.stT * 9)) };   // hold the net out beside her
     const a = this.act;
-    if (a) {
+    const rk0 = reelKey(key, this.rod().code);
+    if (a && a.seq === 'toReel') {   // the lure is in the water: raise the rod and bring both hands to the reel
+      if (rk0 && A.man.meta.ang[rk0].fr['157']) { const n = 157 + Math.floor(a.t * 22); if (n <= 164) return { key: rk0, n }; }
+      this.act = null;
+    } else if (a && a.seq === 'reelIn') {   // 收竿 with a reel: wind the line in
+      if (rk0 && a.t < 1.1) return { key: rk0, n: 125 + Math.floor(a.t * 16 * 2.2) % 16 };
+      this.act = null;
+    } else if (a) {
       const q = ACT[a.seq], n = q[0] + Math.floor(a.t * q[2]);
       if (n <= q[1]) return { key, n };
       this.act = null;
@@ -2739,7 +2750,15 @@ const pond = {
     const an = this.angNow();
     if (an) {
       const tgt = this.lineTarget();
+      // switching between the normal and the reel-cranking sets: a short cross-fade (the new pose under the old one fading out)
+      if (this._angLast && this._angLast.key !== an.key) this._xf = { key: this._angLast.key, n: this._angLast.n, t: 0 };
+      this._angLast = an;
       const r = drawAngFrame(an.key, an.n, meX(), BODY[1]);
+      if (this._xf) {
+        const X = this._xf; X.t += DTF;
+        if (X.t > .2) this._xf = null;
+        else { ctx.save(); ctx.globalAlpha = 1 - X.t / .2; drawAngFrame(X.key, X.n, meX(), BODY[1]); ctx.restore(); }
+      }
       this.tipPos = r.tip;
       if (tgt) this.drawLine(r.tip, tgt);
       return;
@@ -4437,7 +4456,7 @@ function loop(now) {
 /* ---------------- boot ---------------- */
 (async function boot() {
   load(); resize();
-  try { A.man = await (await fetch('assets.json')).json(); }
+  try { A.man = await (await fetch('assets.json', { cache: 'no-cache' })).json(); }
   catch (e) { bootEl.textContent = '素材讀取失敗，請重新整理頁面。'; return; }
   water.init();
   NET.init();

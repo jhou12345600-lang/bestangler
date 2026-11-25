@@ -7,7 +7,7 @@ import base64, io, json, math, os, sys
 from playwright.sync_api import sync_playwright
 from PIL import Image, ImageDraw
 sys.argv_ = sys.argv; sys.argv = ['x']
-from anim_boy import ARGS, W, H, CAM, SCALE, GRIP, FAMILY, grade
+from anim_boy import ARGS, W, H, CAM, SCALE, GRIP, FAMILY, grade, state_at, LREL
 sys.argv = sys.argv_
 N = 16
 import os as _os
@@ -17,14 +17,17 @@ LGRIP = {}
 for _f in '1234':
     LGRIP[f'L_Finger{_f}'] = [0, 0, 55 * LF]; LGRIP[f'L_Finger{_f}1'] = [0, 0, 75 * LF]; LGRIP[f'L_Finger{_f}2'] = [0, 0, 55 * LF]
 LGRIP['L_Finger0'] = [0, 0, 20 * LF]; LGRIP['L_Finger01'] = [0, 0, 25 * LF]
-TW = float(_os.environ.get('TW', 5))
+TW = float(_os.environ.get('TW', 18))
+RY = float(_os.environ.get('RY', 27)); RX = float(_os.environ.get('RX', -3)); RZ = float(_os.environ.get('RZ', 6))
 # 官方 2026-11-25：男角捲線動作跟女角一樣 — rod held up on the right with both hands at head height, the reel beside
 # the head and the left hand reaching across to turn the handle. rh: right palm target relative to the right shoulder.
 POSES = {
-    'retrieve': {'body': {'Pelvis': [0, TW * .4, 0], 'Spine1': [0, TW * .6, 0], 'Neck': [0, -TW * .4, 3]}, 'rh': [-6, 20, 24], 'rinit': [0, 20, -20, 0, 85, -5],
-                 'rod': {'dir': [-.34, 1, .42], 'bend': [.2, -.4, 1], 'k': .12}},
-    'fight': {'body': {'Pelvis': [0, TW * .4, 0], 'Spine1': [0, TW * .6, -6], 'Neck': [0, -TW * .4, 7]}, 'rh': [-7, 24, 20], 'rinit': [0, 20, -20, 0, 85, -5],
-              'rod': {'dir': [-.36, 1, .3], 'bend': [.3, -.35, 1], 'k': .42}},
+    # like the girl's original frames: the rod raised on the right with the reel up beside/above the head,
+    # the right elbow out to the side and the left hand reaching over to the handle
+    'retrieve': {'body': {'Pelvis': [0, TW * .4, 0], 'Spine1': [0, TW * .6, -2], 'Neck': [0, -TW * .4, 5]}, 'rh': [RX, RY, RZ], 'rinit': [0, 30, -30, 0, 95, -5],
+                 'rod': {'dir': [-.5, 1, .38], 'bend': [.2, -.4, 1], 'k': .12}},
+    'fight': {'body': {'Pelvis': [0, TW * .4, 0], 'Spine1': [0, TW * .6, -7], 'Neck': [0, -TW * .4, 8]}, 'rh': [RX - 1, RY + 3, RZ - 3], 'rinit': [0, 30, -30, 0, 95, -5],
+              'rod': {'dir': [-.5, 1, .3], 'bend': [.3, -.35, 1], 'k': .42}},
 }
 BOB = {'retrieve': 1.0, 'fight': 2.2}
 
@@ -53,7 +56,7 @@ def state(pg, kind, i, fam, prevL):
     pg.evaluate('o => setRod(o)', rod)
     knob = pg.evaluate('R.knob')
     starts = [prevL] if prevL else []
-    starts += [[0, 20, -20, 0, 85, -5], [0, 35, -35, 0, 60, -20], [20, 10, -40, 0, 100, 0], [-20, 30, -10, 0, 70, -30]]
+    starts += [[0, 30, -40, 0, 100, -10], [0, 20, -20, 0, 85, -5], [0, 35, -35, 0, 60, -20], [20, 10, -40, 0, 100, 0], [-20, 30, -10, 0, 70, -30]]
     best = None
     for st0 in starts:
         l = pg.evaluate('a => ikArm("L", a[0], a[1], {reg: .00005, steps: [24, 12, 6, 3, 1.5, .7, .3, .15]})', [knob, st0])
@@ -86,6 +89,13 @@ if __name__ == '__main__':
                         bg = Image.new('RGBA', im.size, (50, 110, 130, 255)); bg.alpha_composite(im)
                         t = bg.crop((300, 250, 900, 1150)).resize((400, 600)); ImageDraw.Draw(t).text((4, 4), f'{kind} {i} az{az} eL{l["err"]:.1f} eR{r["err"]:.1f}', fill='white'); tiles.append(t)
             o = Image.new('RGB', (400 * len(tiles), 600)); [o.paste(t.convert('RGB'), (k * 400, 0)) for k, t in enumerate(tiles)]; o.save(sys.argv[2])
+        elif mode == 'scan':
+            prev = None; errs = []
+            for kind in ['retrieve', 'fight']:
+                prev = None
+                for i in range(0, N, 2):
+                    r, l = state(pg, kind, i, 'L', prev); prev = l['p']; errs.append(l['err'])
+            print('scan', _os.environ.get('RX'), _os.environ.get('RY'), _os.environ.get('RZ'), _os.environ.get('TW'), 'max', round(max(errs), 1), 'mean', round(sum(errs) / len(errs), 1))
         elif mode == 'zoom':   # close-up of the hands and reel through one turn
             tiles = []; prev = None; kind = sys.argv[3] if len(sys.argv) > 3 else 'retrieve'
             for rep in range(2):
@@ -108,5 +118,27 @@ if __name__ == '__main__':
                         r, l = state(pg, kind, i, fam, prev); prev = l['p']
                         if rep == 1:
                             im, tip = shoot(pg); im.save(d + f'{base + i:04d}.png'); meta['frames'][str(base + i)] = {'tip': tip, 'net': None, 'kind': 0, 'errL': round(l['err'], 2)}
+            # 157-164: after the cast lands, raise the rod and bring the left hand up to the reel handle (into frame 125)
+            r0, l0 = None, None
+            prev = None
+            for rep in range(2):
+                for i in range(N):
+                    r0, l0 = state(pg, 'retrieve', i, fam, prev); prev = l0['p']
+                    if rep == 1 and i == 0: break
+                if rep == 1: break
+            P0 = state_at(113, fam); Pt = POSES['retrieve']
+            end = {**{k: list(v) for k, v in Pt['body'].items()}, 'R_UpperArm': r0['p'][:3], 'R_Forearm': r0['p'][3:], 'L_UpperArm': l0['p'][:3], 'L_Forearm': l0['p'][3:]}
+            rod_end = {**Pt['rod'], **FAMILY[fam], 'crank': 0}
+            for j in range(8):
+                u = (j + 1) / 9; u = u * u * (3 - 2 * u)
+                bones = set(P0['pose']) | set(end)
+                ps = {b: [P0['pose'].get(b, [0, 0, 0])[c] + (end.get(b, P0['pose'].get(b, [0, 0, 0]))[c] - P0['pose'].get(b, [0, 0, 0])[c]) * u for c in range(3)] for b in bones if not b.startswith('L_Finger')}
+                fing = {k: [LREL.get(k, [0, 0, 0])[c] * (1 - u) + LGRIP.get(k, [0, 0, 0])[c] * u for c in range(3)] for k in set(LREL) | set(LGRIP)}
+                pg.evaluate('resetPose()'); pg.evaluate('p => pose(p)', {**ps, **GRIP, **fing})
+                ro = {'dir': [P0['rod']['dir'][c] + (rod_end['dir'][c] - P0['rod']['dir'][c]) * u for c in range(3)],
+                      'bend': [P0['rod']['bend'][c] + (rod_end['bend'][c] - P0['rod']['bend'][c]) * u for c in range(3)],
+                      'k': P0['rod']['k'] + (rod_end['k'] - P0['rod']['k']) * u, **FAMILY[fam], 'crank': 0}
+                pg.evaluate('o => setRod(o)', ro)
+                im, tip = shoot(pg); im.save(d + f'{157 + j:04d}.png'); meta['frames'][str(157 + j)] = {'tip': tip, 'net': None, 'kind': 0, 'errL': 0}
             json.dump(meta, open(d + 'meta.json', 'w')); print('done', fam, max(v['errL'] for v in meta['frames'].values()))
         b.close()
