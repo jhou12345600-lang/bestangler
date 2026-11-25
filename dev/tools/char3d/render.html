@@ -245,16 +245,17 @@ window.feetScreen = (w, h) => ptScreen([R.fixC.x, R.fixMin, R.fixC.z], w, h);
 // numeric IK: bone euler offsets for one arm so its palm (or a point on it) reaches target; regularised toward init
 window.palm = (side) => handPos(side);
 window.ikArm = (side, target, init, o = {}) => {
-  const T = THREE, tg = V3(target), names = [side + '_UpperArm', side + '_Forearm'];
-  let p = init.slice();   // [ua.x, ua.y, ua.z, fa.x, fa.y, fa.z]
-  const apply = q => pose({ [names[0]]: q.slice(0, 3), [names[1]]: q.slice(3, 6) });
+  const T = THREE, tg = V3(target), names = o.clav ? [side + '_UpperArm', side + '_Forearm', side + '_Clavicle'] : [side + '_UpperArm', side + '_Forearm'];
+  let p = init.slice(); while (p.length < names.length * 3) p.push(0);   // [ua.xyz, fa.xyz, (clav.xyz)]
+  init = p.slice();
+  const apply = q => { const P = {}; names.forEach((n, i) => P[n] = q.slice(i * 3, i * 3 + 3)); pose(P); };
   const reg = o.reg ?? .004, lock = o.lock || [];
-  const cost = q => { apply(q); let c = palm(side).distanceTo(tg); for (let i = 0; i < 6; i++) c += reg * (q[i] - init[i]) ** 2; return c; };
+  const cost = q => { apply(q); let c = palm(side).distanceTo(tg); for (let i = 0; i < q.length; i++) c += reg * (i >= 6 ? 8 : 1) * (q[i] - init[i]) ** 2; return c; };
   let best = cost(p);
   for (const step of (o.steps || [12, 6, 3, 1.5, .7, .3])) {
     for (let it = 0; it < 40; it++) {
       let improved = false;
-      for (let i = 0; i < 6; i++) {
+      for (let i = 0; i < p.length; i++) {
         if (lock.includes(i)) continue;
         for (const sgn of [1, -1]) { const q = p.slice(); q[i] += sgn * step; const c = cost(q); if (c < best - 1e-4) { best = c; p = q; improved = true; } }
       }

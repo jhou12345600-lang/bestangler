@@ -66,7 +66,7 @@ def analyse(im, knob=True):
     return dict(ht=ht, grip=grip, A=A, base=base, layer=layer, knob=knob, hub=hub, stem=info_stem)
 
 
-def crank(im, ang, info=None, A1=7., A2=9., rot=9.):
+def crank(im, ang, info=None, A1=10., A2=12., rot=12.):
     """the hand, holding the handle knob, goes round with the handle: a=0 is the original frame. A1: half the swing along
     the handle (hub -> knob), A2: across it (the circle seen from behind is a narrow ellipse); rot: wrist turn (degrees)"""
     import cv2

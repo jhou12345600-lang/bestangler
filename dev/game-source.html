@@ -4441,7 +4441,17 @@ function loop(now) {
 }
 
 /* ---------------- boot ---------------- */
+const BUILD = '__BUILD__';   // stamped at deploy (tools/stamp_build.py); version.json holds the live one
 (async function boot() {
+  // a browser may keep an old copy of this page for a few minutes after an update: if the live build differs,
+  // reload once from a fresh address so the newest version is what runs
+  try {
+    if (!BUILD.startsWith('__')) {
+      const v = await (await fetch('version.json?t=' + Date.now(), { cache: 'no-store' })).json();
+      const want = String(v.build || ''), have = new URLSearchParams(location.search).get('b');
+      if (want && want !== BUILD && have !== want) { const q = new URLSearchParams(location.search); q.set('b', want); location.replace(location.pathname + '?' + q + location.hash); return; }
+    }
+  } catch (e) {}
   load(); resize();
   try { A.man = await (await fetch('assets.json', { cache: 'no-cache' })).json(); }
   catch (e) { bootEl.textContent = '素材讀取失敗，請重新整理頁面。'; return; }

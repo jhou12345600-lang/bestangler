@@ -17,16 +17,17 @@ LGRIP = {}
 for _f in '1234':
     LGRIP[f'L_Finger{_f}'] = [0, 0, 55 * LF]; LGRIP[f'L_Finger{_f}1'] = [0, 0, 75 * LF]; LGRIP[f'L_Finger{_f}2'] = [0, 0, 55 * LF]
 LGRIP['L_Finger0'] = [0, 0, 20 * LF]; LGRIP['L_Finger01'] = [0, 0, 25 * LF]
-TW = float(_os.environ.get('TW', 18))
-RY = float(_os.environ.get('RY', 27)); RX = float(_os.environ.get('RX', -3)); RZ = float(_os.environ.get('RZ', 6))
+TW = float(_os.environ.get('TW', -20))   # torso turn toward the rod (X = twist on this rig)
+CLAV = _os.environ.get('CLAV', '1') == '1'
+RY = float(_os.environ.get('RY', 42)); RX = float(_os.environ.get('RX', -18)); RZ = float(_os.environ.get('RZ', 14))
 # 官方 2026-11-25：男角捲線動作跟女角一樣 — rod held up on the right with both hands at head height, the reel beside
 # the head and the left hand reaching across to turn the handle. rh: right palm target relative to the right shoulder.
 POSES = {
     # like the girl's original frames: the rod raised on the right with the reel up beside/above the head,
     # the right elbow out to the side and the left hand reaching over to the handle
-    'retrieve': {'body': {'Pelvis': [0, TW * .4, 0], 'Spine1': [0, TW * .6, -2], 'Neck': [0, -TW * .4, 5]}, 'rh': [RX, RY, RZ], 'rinit': [0, 30, -30, 0, 95, -5],
+    'retrieve': {'body': {'Spine': [TW * .4, 0, 0], 'Spine1': [TW * .6, 0, -2], 'Neck': [-TW * .5, 0, 5]}, 'rh': [RX, RY, RZ], 'rinit': [0, 30, -30, 0, 95, -5],
                  'rod': {'dir': [-.5, 1, .38], 'bend': [.2, -.4, 1], 'k': .12}},
-    'fight': {'body': {'Pelvis': [0, TW * .4, 0], 'Spine1': [0, TW * .6, -7], 'Neck': [0, -TW * .4, 8]}, 'rh': [RX - 1, RY + 3, RZ - 3], 'rinit': [0, 30, -30, 0, 95, -5],
+    'fight': {'body': {'Spine': [TW * .4, 0, 0], 'Spine1': [TW * .6, 0, -7], 'Neck': [-TW * .5, 0, 8]}, 'rh': [RX - 1, RY + 3, RZ - 3], 'rinit': [0, 30, -30, 0, 95, -5],
               'rod': {'dir': [-.5, 1, .3], 'bend': [.3, -.35, 1], 'k': .42}},
 }
 BOB = {'retrieve': 1.0, 'fight': 2.2}
@@ -46,7 +47,7 @@ def state(pg, kind, i, fam, prevL):
     P = POSES[kind]; ph = i / N; a = 2 * math.pi * ph
     bob = BOB[kind]
     body = {k: list(v) for k, v in P['body'].items()}
-    body['Spine1'] = [body['Spine1'][0], body['Spine1'][1] + math.sin(a) * bob * .6, body['Spine1'][2] + math.cos(a) * bob * .4]
+    body['Spine1'] = [body['Spine1'][0] + math.sin(a) * bob * .6, body['Spine1'][1], body['Spine1'][2] + math.cos(a) * bob * .4]
     pg.evaluate('resetPose()'); pg.evaluate('p => pose(p)', {**body, **GRIP, **LGRIP})
     sh = pg.evaluate(BONE, 'R_UpperArm')
     rh = [sh[0] + P['rh'][0], sh[1] + P['rh'][1] + math.sin(a) * bob * .5, sh[2] + P['rh'][2]]
@@ -59,10 +60,10 @@ def state(pg, kind, i, fam, prevL):
     starts += [[0, 30, -40, 0, 100, -10], [0, 20, -20, 0, 85, -5], [0, 35, -35, 0, 60, -20], [20, 10, -40, 0, 100, 0], [-20, 30, -10, 0, 70, -30]]
     best = None
     for st0 in starts:
-        l = pg.evaluate('a => ikArm("L", a[0], a[1], {reg: .00005, steps: [24, 12, 6, 3, 1.5, .7, .3, .15]})', [knob, st0])
+        l = pg.evaluate('a => ikArm("L", a[0], a[1], {reg: .00005, clav: CLAV, steps: [24, 12, 6, 3, 1.5, .7, .3, .15]})'.replace('CLAV', 'true' if CLAV else 'false'), [knob, st0])
         if best is None or l['err'] < best['err'] - .3: best = l
         if best['err'] < .6: break
-    l = best; pg.evaluate('q => pose({L_UpperArm: q.slice(0, 3), L_Forearm: q.slice(3, 6)})', l['p'])
+    l = best; pg.evaluate('q => pose({L_UpperArm: q.slice(0, 3), L_Forearm: q.slice(3, 6), ...(q.length > 6 ? {L_Clavicle: q.slice(6, 9)} : {})})', l['p'])
     pg.evaluate('o => setRod(o)', rod)   # rebuild after the final pose (rod follows the right hand)
     return r, l
 
@@ -127,7 +128,7 @@ if __name__ == '__main__':
                     if rep == 1 and i == 0: break
                 if rep == 1: break
             P0 = state_at(113, fam); Pt = POSES['retrieve']
-            end = {**{k: list(v) for k, v in Pt['body'].items()}, 'R_UpperArm': r0['p'][:3], 'R_Forearm': r0['p'][3:], 'L_UpperArm': l0['p'][:3], 'L_Forearm': l0['p'][3:]}
+            end = {**{k: list(v) for k, v in Pt['body'].items()}, 'R_UpperArm': r0['p'][:3], 'R_Forearm': r0['p'][3:6], 'L_UpperArm': l0['p'][:3], 'L_Forearm': l0['p'][3:6], **({'L_Clavicle': l0['p'][6:9]} if len(l0['p']) > 6 else {})}
             rod_end = {**Pt['rod'], **FAMILY[fam], 'crank': 0}
             for j in range(8):
                 u = (j + 1) / 9; u = u * u * (3 - 2 * u)
