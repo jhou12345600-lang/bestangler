@@ -182,27 +182,37 @@ window.setRod = (o) => {
     const mat = u < .2 ? mats[0] : (u < .24 ? mats[3] : (Math.floor(u * 11) % 3 === 0 ? mats[2] : mats[1]));
     seg(pts[i], pts[i + 1], r0, r1, mat, grp);
   }
-  if (st !== 'pole' && o.crank == null) { const reel = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 3, 18), mats[3]); reel.position.copy(pts[4]).add(new THREE.Vector3(0, -3.5, 0)); reel.rotation.z = Math.PI / 2; grp.add(reel); }
-  if (st !== 'pole' && o.crank != null) {
-    // spinning reel hanging under the rod just ahead of the right hand, handle on the angler's left (+X), turning at angle o.crank
+  if (st !== 'pole') {
+    // spinning reel (like the girl's: blue body, silver spool, gold bail), hanging under the rod just ahead of the right hand;
+    // handle on the angler's left (+X), turned to angle o.crank (rest position when not cranking). RS: a little larger than
+    // life so it reads at game size, as in the original art
+    const RS = o.reelScale || 1.55, ca = o.crank ?? 2.2;
     const fw = d.clone(), side = new THREE.Vector3(1, 0, 0).addScaledVector(fw, -fw.x).normalize(), dn = new THREE.Vector3().crossVectors(fw, side).normalize();
     if (dn.y > 0) dn.negate();
-    const stemTop = hp.clone().addScaledVector(fw, 7), body = stemTop.clone().addScaledVector(dn, 6.5);
-    const metal = new THREE.MeshStandardMaterial({ color: '#c9ced4', roughness: .25, metalness: .85 }), dark = new THREE.MeshStandardMaterial({ color: '#23272d', roughness: .4, metalness: .4 });
-    const gold = new THREE.MeshStandardMaterial({ color: '#d9a43a', roughness: .3, metalness: .8 });
-    seg(stemTop, body, .7, .7, dark, grp);
-    const B = (geo, mat, pos, axis) => { const m = new THREE.Mesh(geo, mat); m.position.copy(pos); m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis.clone().normalize()); grp.add(m); return m; };
-    B(new THREE.CylinderGeometry(2.6, 2.6, 4.2, 22), dark, body, side);                       // gear housing
-    const spool = body.clone().addScaledVector(fw, 4.2);
-    B(new THREE.CylinderGeometry(2.9, 2.5, 3.6, 22), metal, spool, fw);                       // spool, line on it
-    B(new THREE.CylinderGeometry(2.3, 2.3, 2.6, 22), new THREE.MeshStandardMaterial({ color: '#e9eef2', roughness: .6 }), spool.clone().addScaledVector(fw, .2), fw);
-    B(new THREE.TorusGeometry(3.3, .22, 6, 24, Math.PI), gold, spool.clone().addScaledVector(fw, 1.8), fw).rotateZ(o.crank * 1.0);   // bail
-    const hub = body.clone().addScaledVector(side, 3.4);
-    B(new THREE.CylinderGeometry(.6, .6, 3.2, 10), metal, body.clone().addScaledVector(side, 1.8), side);
-    const r = 4.6, a = o.crank, arm = hub.clone().addScaledVector(dn, r * Math.cos(a)).addScaledVector(fw, r * Math.sin(a));
-    seg(hub, arm, .55, .45, metal, grp);
-    const knobC = arm.clone().addScaledVector(side, 1.6);
-    B(new THREE.CylinderGeometry(1.15, 1.15, 3, 14), new THREE.MeshStandardMaterial({ color: '#efe6d2', roughness: .5 }), knobC, side);
+    const M = (c, r = .3, m = .6) => new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: m });
+    const blue = M('#1f56c8', .28, .55), blue2 = M('#5d95ff', .25, .6), silver = M('#d7dde3', .18, .9), dark = M('#1d2127', .4, .4), gold = M('#e0b040', .25, .85), cream = M('#f1e8d3', .5, .05), line = M('#f4f7fa', .6, 0);
+    const B = (geo, mat, pos, axis) => { const m = new THREE.Mesh(geo, mat); m.position.copy(pos); m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis.clone().normalize()); m.castShadow = true; grp.add(m); return m; };
+    const stemTop = hp.clone().addScaledVector(fw, 6 * RS * .8), body = stemTop.clone().addScaledVector(dn, 5.6 * RS);
+    B(new THREE.BoxGeometry(2.2 * RS, .7 * RS, 6 * RS), blue, stemTop.clone().addScaledVector(dn, .5 * RS), dn).lookAt(stemTop.clone().addScaledVector(fw, 10));   // reel foot on the seat
+    seg(stemTop, body, .75 * RS, .9 * RS, blue, grp);                                                               // stem
+    B(new THREE.CylinderGeometry(2.7 * RS, 2.7 * RS, 3.6 * RS, 26), blue, body, side);                              // gear housing
+    B(new THREE.CylinderGeometry(2.2 * RS, 2.2 * RS, 3.8 * RS, 26), blue2, body, side);                             // housing face ring
+    const rotor = body.clone().addScaledVector(fw, 2.6 * RS);
+    B(new THREE.CylinderGeometry(2.5 * RS, 2.1 * RS, 1.8 * RS, 26), dark, rotor, fw);                               // rotor cup
+    const spool = body.clone().addScaledVector(fw, 4.6 * RS);
+    B(new THREE.CylinderGeometry(2.5 * RS, 2.3 * RS, 2.6 * RS, 26), line, spool, fw);                               // line on the spool
+    B(new THREE.CylinderGeometry(2.75 * RS, 2.75 * RS, .5 * RS, 26), silver, spool.clone().addScaledVector(fw, 1.4 * RS), fw);   // spool lip
+    B(new THREE.CylinderGeometry(1 * RS, 1 * RS, .9 * RS, 16), gold, spool.clone().addScaledVector(fw, 1.9 * RS), fw);           // drag knob
+    const bail = B(new THREE.TorusGeometry(2.9 * RS, .2 * RS, 8, 28, Math.PI * 1.1), gold, rotor.clone().addScaledVector(fw, 1.6 * RS), fw);
+    bail.rotateY(ca * 1.0);                                                                                          // the bail turns with the rotor
+    const hub = body.clone().addScaledVector(side, 2.3 * RS);
+    B(new THREE.CylinderGeometry(.8 * RS, .8 * RS, 1.4 * RS, 14), silver, hub, side);                               // handle hub
+    const r = 4.2 * RS, arm = hub.clone().addScaledVector(dn, r * Math.cos(ca)).addScaledVector(fw, r * Math.sin(ca));
+    seg(hub, arm, .55 * RS, .45 * RS, silver, grp);                                                                  // crank arm
+    const counter = hub.clone().addScaledVector(dn, -1.4 * RS * Math.cos(ca)).addScaledVector(fw, -1.4 * RS * Math.sin(ca));
+    seg(hub, counter, .5 * RS, .4 * RS, silver, grp);
+    const knobC = arm.clone().addScaledVector(side, 1.3 * RS);
+    B(new THREE.CylinderGeometry(.95 * RS, .95 * RS, 2.6 * RS, 16), cream, knobC, side);                            // knob
     R.knob = knobC.toArray(); R.reelBody = body.toArray();
   }
   R.scene.add(grp); R.rod = grp; R.rodTip = pts[N].toArray();

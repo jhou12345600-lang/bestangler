@@ -55,11 +55,16 @@ for fam in ['L', 'C']:
 
 # ---------- girl: crank warp on her fight frames ----------
 def warp(im, c, d, rad):
-    """move the pixels around centre c by d with a smooth falloff (radius rad): backward mapping, no holes"""
+    """move the pixels around centre c by d with a smooth falloff (radius rad): backward mapping, no holes.
+    The blue reel body and the rod are held still (only the hand and the handle knob it grips go round)."""
     a = np.array(im).astype(np.float32); H, W = a.shape[:2]
     yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
     r = np.hypot(xx - c[0], yy - c[1]) / rad
     wgt = np.clip(1 - r, 0, 1); wgt = wgt * wgt * (3 - 2 * wgt)
+    R_, G_, B_, A_ = a[..., 0], a[..., 1], a[..., 2], a[..., 3]
+    still = ((B_ > R_ + 25) & (B_ > G_ - 10) & (A_ > 60)).astype(np.float32)     # blue reel / rod
+    still = np.clip(ndimage.gaussian_filter(ndimage.binary_dilation(still > 0, iterations=2).astype(np.float32), 2.0) * 1.6, 0, 1)
+    wgt = wgt * (1 - still)
     sx = xx - d[0] * wgt; sy = yy - d[1] * wgt
     out = np.stack([ndimage.map_coordinates(a[..., ch], [sy, sx], order=1, mode='constant') for ch in range(4)], -1)
     return Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
