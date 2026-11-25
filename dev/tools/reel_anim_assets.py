@@ -95,10 +95,10 @@ for code in ['UL', 'ML', 'MH', 'C300', 'C360']:
     sheet = Image.open(OUT + man['img'][key]['f']).convert('RGBA'); fr = src[key]['fr']; scale = src[key]['s']
     base = {n: sheet.crop((fr[str(n)][0], fr[str(n)][1], fr[str(n)][0] + fr[str(n)][2], fr[str(n)][1] + fr[str(n)][3])) for n in range(57, 64)}
     import girl_crank as GC
-    an = {n: GC.analyse(base[n]) for n in base}
+    an = {n: GC.analyse(base[n], knob=not code.startswith('C')) for n in base}   # the cast-rod reel has no separate knob to carry
     frames, info = [], []
-    # 收線: the rod held still (frame 57); 搏魚: the rod working through the original fight frames 57-63 and back
-    for seq, n0, bases in [('retrieve', 125, [57] * 16), ('fight', 141, [57, 58, 59, 60, 61, 62, 63, 62, 61, 60, 59, 58, 57, 58, 59, 60])]:
+    # 收線 and 搏魚: the rod and reel held steady (frame 57) so only the hand turns the handle (官方：要手在捲線，不是捲線器上下動)
+    for seq, n0, bases in [('retrieve', 125, [57] * 16), ('fight', 141, [57] * 16)]:
         for i, bn in enumerate(bases):
             ang = 2 * math.pi * i / 16   # one turn of the handle per 16 frames (same as the boy)
             im, _ = GC.crank(base[bn], ang, an[bn]) if an[bn] else (base[bn], None)
