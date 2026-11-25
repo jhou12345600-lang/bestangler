@@ -313,6 +313,17 @@ function parseSave(v) {
   for (const k of ['bait', 'records', 'blocked', 'equip']) if (!o[k] || typeof o[k] !== 'object' || Array.isArray(o[k])) delete o[k];
   return o;
 }
+// One-time account adjustments (官方指示). Each runs once per account: its id is recorded in the save (S.grants),
+// so later updates never apply it again and the player spends normally afterwards. Keep old entries; add new ids only.
+const GRANTS = [
+  { id: 'gavin-gold-1000-20261125', acct: 'gavin', apply: () => { S.gold = 1000; } },   // 2026-11-25：帳號 gavin 金幣改為 1000
+];
+function applyGrants(user) {
+  const acct = user && !user.isAnonymous && user.email ? user.email.split('@')[0].toLowerCase() : '';
+  if (!acct) return;
+  S.grants = S.grants && typeof S.grants === 'object' && !Array.isArray(S.grants) ? S.grants : {};
+  for (const g of GRANTS) if (g.acct === acct && !S.grants[g.id]) { g.apply(); S.grants[g.id] = Date.now(); }
+}
 function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) { /* ignore */ } if (typeof FB !== 'undefined') FB.queueSave(); }
 const lvFromEp = ep => { let lv = 1; while (lv < MAX_LV && ep >= epForLv(lv + 1)) lv++; return lv; };
 function epForLv(lv) { return lv <= 1 ? 0 : lv > MAX_LV ? Infinity : LEVEL_EP[lv]; }
@@ -857,6 +868,7 @@ const FB = {
     if (cloud) { S = Object.assign(freshSave(), cloud); if (S.today.date !== today()) S.today = { date: today(), list: [] }; }
     else if (fresh) S = Object.assign(freshSave(), fresh);
     migrateSave();
+    applyGrants(user);
     if (user.isAnonymous && (!S.name || S.name === '神釣手')) S.name = '訪客' + user.uid.slice(-4);
     try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {}
     this.dirty = true; this.flushSave();
@@ -4466,7 +4478,7 @@ function loop(now) {
 }
 
 /* ---------------- boot ---------------- */
-const BUILD = 'ed9dc910a2';   // stamped at deploy (tools/stamp_build.py); version.json holds the live one
+const BUILD = '79f12b5a33';   // stamped at deploy (tools/stamp_build.py); version.json holds the live one
 (async function boot() {
   // a browser may keep an old copy of this page for a few minutes after an update: if the live build differs,
   // reload once from a fresh address so the newest version is what runs

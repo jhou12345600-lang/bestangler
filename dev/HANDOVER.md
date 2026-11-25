@@ -163,3 +163,9 @@
   3. Realtime Database 匯出 JSON 再匯入新專案。
   4. 換掉 `firebase-config.js`，把 `index.html`、`firebase-config.js`、`assets.json`、`img/`、`lib/` 放到官方主機。
   5. 舊網址放轉址頁。
+
+
+## 單次帳號調整（GRANTS）
+- 位置：index.html 的 `GRANTS` 清單與 `applyGrants()`。玩家登入時，若帳號符合且存檔裡還沒有該筆 id（`S.grants`），就套用一次並記錄，之後不會再套用，扣款照常。
+- 2026-11-25：帳號 gavin 金幣改為 1000（id `gavin-gold-1000-20261125`）。
+- 之後更新遊戲時保留這些舊項目，不要改 id；新的調整加新的一筆。官方接手伺服器後，也可以直接在 Firebase 後台改 `users/<uid>/save`。
