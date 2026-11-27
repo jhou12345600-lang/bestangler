@@ -1,0 +1,41 @@
+
+skeleton.webp
+size: 1332,514
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+Wild
+  rotate: false
+  xy: 2, 4
+  size: 461, 508
+  orig: 465, 513
+  offset: 2, 3
+  index: -1
+Wild-text
+  rotate: true
+  xy: 1205, 256
+  size: 256, 125
+  orig: 259, 130
+  offset: 1, 2
+  index: -1
+aperture
+  rotate: false
+  xy: 465, 30
+  size: 482, 482
+  orig: 500, 500
+  offset: 9, 9
+  index: -1
+botton
+  rotate: false
+  xy: 949, 258
+  size: 254, 254
+  orig: 254, 254
+  offset: 0, 0
+  index: -1
+door1
+  rotate: false
+  xy: 949, 2
+  size: 254, 254
+  orig: 254, 254
+  offset: 0, 0
+  index: -1

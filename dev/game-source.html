@@ -1317,7 +1317,12 @@ const titleScene = {
   p: 0, ready: false, t: 0,
   enter() { this.t = 0; audio.ambience(.04); audio.bgm('lobby'); },
   exit() { hideFields(); },
-  update(dt) { this.t += dt; },
+  update(dt) {
+    this.t += dt;
+    // Spine 測試：WILD 動畫在登入畫面播放（載入完成後才出現，不影響開場載入）
+    if (this.ready && !this.spineReq) { this.spineReq = true; SPINE.load('wild').then(d => { this.spine = SPINE.make(d); this.spineT = 0; }).catch(() => {}); }
+    if (this.spine) { this.spineT += dt; try { SPINE.update(this.spine, dt); } catch (e) { console.warn('spine', e); this.spine = null; } }
+  },
   draw() {
     if (PX > 0) { // wide screen: the portrait cover in the middle, a soft blurred copy behind it
       ctx.save(); ctx.filter = 'blur(28px) brightness(.42)'; img('cover-bg', -40, -40, { w: LW + 80, h: LH + 80 }); ctx.restore();
@@ -1331,6 +1336,7 @@ const titleScene = {
     const g = ctx.createLinearGradient(0, 0, 720, LH);
     g.addColorStop(0, 'rgba(255,240,200,.18)'); g.addColorStop(.5, 'rgba(255,255,255,0)'); g.addColorStop(1, 'rgba(0,30,40,.35)');
     ctx.fillStyle = g; ctx.fillRect(0, 0, 720, LH);
+    if (this.spine) SPINE.draw(this.spine, 606, 168, .34, Math.min(1, this.spineT * 2.5));   // Spine 測試動畫（右上）
     // loading bar / start
     const by = 1120;
     if (this.ready && NET.mode === 'fire') { this.drawRest(); return; }
@@ -1357,6 +1363,51 @@ const titleScene = {
   },
 };
 
+
+/* ---------------- Spine skeletal animation (官方 2026-11-28 測試) ----------------
+   Official Spine 3.8 exports (skeleton.json + .atlas + page image) played with the official spine-ts canvas runtime.
+   The runtime (lib/spine-canvas.min.js) is fetched only when a scene first needs it, so it never slows the first load;
+   atlas pages are WebP. Coordinates: Spine is y-up, so the skeleton is drawn with the y axis flipped. */
+const SPINE = {
+  lib: null, cache: {}, renderer: null, err: '',
+  url(p) { const v = A.man && A.man.ver && A.man.ver[p]; return v ? p + '?v=' + v : p; },
+  loadLib() {
+    return this.lib || (this.lib = new Promise((res, rej) => {
+      if (window.spine && spine.canvas) return res();
+      const sc = document.createElement('script'); sc.src = this.url('lib/spine-canvas.min.js'); sc.async = true;
+      sc.onload = () => (window.spine && spine.canvas ? res() : rej(new Error('spine runtime missing')));
+      sc.onerror = () => { this.lib = null; rej(new Error('spine runtime failed to load')); };
+      document.head.appendChild(sc);
+    }));
+  },
+  load(name) {
+    if (this.cache[name]) return this.cache[name];
+    const p = (async () => {
+      await this.loadLib();
+      const base = 'spine/' + name + '/';
+      const get = async f => { const r = await fetch(this.url(base + f)); if (!r.ok) throw new Error(base + f + ' ' + r.status); return r.text(); };
+      const [json, atlasTxt] = await Promise.all([get('skeleton.json'), get('skeleton.atlas')]);
+      const pages = {};
+      for (const ln of atlasTxt.split(/\r?\n/)) { const f = ln.trim(); if (/\.(webp|png)$/i.test(f) && !pages[f]) pages[f] = await loadImg(this.url(base + f)); }
+      const atlas = new spine.TextureAtlas(atlasTxt, f => new spine.canvas.CanvasTexture(pages[f]));
+      return new spine.SkeletonJson(new spine.AtlasAttachmentLoader(atlas)).readSkeletonData(json);
+    })();
+    this.cache[name] = p; p.catch(e => { this.err = String(e && e.message || e); delete this.cache[name]; console.warn('spine', name, e); });
+    return p;
+  },
+  // a playing instance: { sk, st }; loops the given (or first) animation
+  make(data, anim, loop = true) {
+    const sk = new spine.Skeleton(data); sk.setToSetupPose();
+    const st = new spine.AnimationState(new spine.AnimationStateData(data));
+    st.setAnimation(0, anim || data.animations[0].name, loop);
+    sk.updateWorldTransform(); return { sk, st };
+  },
+  update(I, dt) { I.st.update(dt); I.st.apply(I.sk); I.sk.updateWorldTransform(); },
+  draw(I, x, y, s = 1, a = 1) {
+    if (!this.renderer || this.renderer.ctx !== ctx) { this.renderer = new spine.canvas.SkeletonRenderer(ctx); this.renderer.triangleRendering = false; }
+    ctx.save(); ctx.globalAlpha *= a; ctx.translate(x, y); ctx.scale(s, -s); this.renderer.draw(I.sk); ctx.restore();
+  },
+};
 
 /* ---------------- login / register (public website) ---------------- */
 const F = { id: document.getElementById('fId'), pw: document.getElementById('fPw'), pw2: document.getElementById('fPw2'), mail: document.getElementById('fMail') };

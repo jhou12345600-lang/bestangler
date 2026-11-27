@@ -35,6 +35,9 @@ open(out + '/index.html', 'w', encoding='utf8').write(page)
 for f in os.listdir('/home/claude/web_emu/lib'):
     shutil.copy('/home/claude/web_emu/lib/' + f, out + '/lib/' + f)
 shutil.copy('/home/claude/fbemu/database.rules.json', out + '/database.rules.json')
+# Spine exports (spine/<name>/…), built by tools/spine_assets.py into the game folder
+if os.path.isdir(os.path.dirname(os.path.abspath(src)) + '/spine'):
+    shutil.copytree(os.path.dirname(os.path.abspath(src)) + '/spine', out + '/spine', dirs_exist_ok=True)
 if cfg:
     shutil.copy(cfg, out + '/firebase-config.js')
 elif not os.path.exists(out + '/firebase-config.js'):
