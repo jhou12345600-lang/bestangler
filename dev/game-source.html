@@ -403,12 +403,17 @@ function frame(key, i, x, y, o = {}) {
   return true;
 }
 function text(str, x, y, o = {}) {
-  const size = o.size ?? 26;
-  ctx.font = `${o.weight ?? 700} ${size}px ${o.font ?? 'var(--ui)'}`.replace('var(--ui)', '"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif').replace('var(--brush)', '"LXGW WenKai TC","Kaiti TC","BiauKai",serif');
+  let size = o.size ?? 26;
+  const fnt = sz => `${o.weight ?? 700} ${sz}px ${o.font ?? 'var(--ui)'}`.replace('var(--ui)', '"Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif').replace('var(--brush)', '"LXGW WenKai TC","Kaiti TC","BiauKai",serif');
+  ctx.font = fnt(size);
+  if (o.maxW) {   // shrink to fit (e.g. big numbers in the gold / silver / EP bars), counting the outline
+    const w = ctx.measureText(str).width + (o.stroke ? (o.sw ?? size * .22) : 0);
+    if (w > o.maxW) { size = Math.max(size * .5, size * o.maxW / w); ctx.font = fnt(size); }
+  }
   ctx.textAlign = o.align ?? 'left';
   ctx.textBaseline = o.base ?? 'middle';
   if (o.a !== undefined) ctx.globalAlpha = o.a;
-  if (o.stroke) { ctx.lineJoin = 'round'; ctx.lineWidth = o.sw ?? size * .22; ctx.strokeStyle = o.stroke; ctx.strokeText(str, x, y); }
+  if (o.stroke) { ctx.lineJoin = 'round'; ctx.lineWidth = (o.sw ?? (o.size ?? 26) * .22) * size / (o.size ?? 26); ctx.strokeStyle = o.stroke; ctx.strokeText(str, x, y); }
   if (o.shadow) { ctx.shadowColor = o.shadow; ctx.shadowBlur = o.blur ?? 6; ctx.shadowOffsetY = o.sy ?? 2; }
   ctx.fillStyle = o.color ?? '#fff';
   ctx.fillText(str, x, y);
@@ -1282,11 +1287,11 @@ function hudTop(o = {}) {
   // currencies
   const px = 360;
   ui('top-UI/gold_coin-panel', px, y0 + 2, { s: .78 });
-  text(fmt(o.gold ?? COINFX.shown('gold')), px + 70, y0 + 2 + 32, { size: 24, weight: 900, color: '#fff', stroke: '#0a4a6a' }); COINFX.mark('gold', px + 32, y0 + 33);
+  text(fmt(o.gold ?? COINFX.shown('gold')), px + 70, y0 + 2 + 32, { size: 24, weight: 900, color: '#fff', stroke: '#0a4a6a', maxW: 240 * .78 - 70 }); COINFX.mark('gold', px + 32, y0 + 33);
   ui('top-UI/silver_coin-panel', px, y0 + 66, { s: .78 });
-  text(fmt(o.silver ?? COINFX.shown('silver')), px + 70, y0 + 66 + 32, { size: 24, weight: 900, color: '#fff', stroke: '#0a4a6a' }); COINFX.mark('silver', px + 32, y0 + 97);
+  text(fmt(o.silver ?? COINFX.shown('silver')), px + 70, y0 + 66 + 32, { size: 24, weight: 900, color: '#fff', stroke: '#0a4a6a', maxW: 240 * .78 - 70 }); COINFX.mark('silver', px + 32, y0 + 97);
   ui('top-UI/EP-panel', px - 4, y0 + 130, { s: .62 });
-  text(fmt(o.ep ?? S.ep) + ' EP', px + 50, y0 + 130 + 25, { size: 19, weight: 900, color: '#fff', stroke: '#0a4a6a' });
+  text(fmt(o.ep ?? S.ep) + ' EP', px + 50, y0 + 130 + 25, { size: 19, weight: 900, color: '#fff', stroke: '#0a4a6a', maxW: 240 * .62 - 54 });
   // 儲值「+」緊接在金幣欄右邊
   if (btn('pay', 'top-UI/button-payment', px + 255 * .78 + 30, y0 + 2 + 31, { s: .72, layer: o.layer ?? 0 }).click) openModal(payModal());
   // sound toggle
@@ -1737,12 +1742,12 @@ function hudLobby() {
   if (hit('rename', { x: 770, y: 30, w: nw + 50, h: 64 }).click) openModal(renameModal());
   // 金幣 + 儲值，下一排 經驗 與 銀幣
   ui('top-UI/gold_coin-panel', 1006, 22, { s: 1 });
-  text(fmt(COINFX.shown('gold')), 1090, 62, { size: 30, weight: 900, color: '#fff', stroke: '#0a4a6a' }); COINFX.mark('gold', 1046, 62);
+  text(fmt(COINFX.shown('gold')), 1090, 62, { size: 30, weight: 900, color: '#fff', stroke: '#0a4a6a', maxW: 1272 - 35.5 - 8 - 1090 }); COINFX.mark('gold', 1046, 62);
   if (btn('pay', 'top-UI/button-payment', 1272, 60, { s: 1 }).click) openModal(payModal());
   ui('top-UI/EP-panel', 790, 98, { s: 1 });
-  text(fmt(S.ep) + ' EP', 872, 138, { size: 28, weight: 900, color: '#fff', stroke: '#0a4a6a' });
+  text(fmt(S.ep) + ' EP', 872, 138, { size: 28, weight: 900, color: '#fff', stroke: '#0a4a6a', maxW: 790 + 240 - 872 });
   ui('top-UI/silver_coin-panel', 1056, 98, { s: 1 });
-  text(fmt(COINFX.shown('silver')), 1140, 138, { size: 30, weight: 900, color: '#fff', stroke: '#0a4a6a' }); COINFX.mark('silver', 1096, 138);
+  text(fmt(COINFX.shown('silver')), 1140, 138, { size: 30, weight: 900, color: '#fff', stroke: '#0a4a6a', maxW: 1056 + 240 - 1140 }); COINFX.mark('silver', 1096, 138);
 }
 
 /* =====================================================================
@@ -3811,8 +3816,8 @@ function shopModal() {
         const ox = 1, oy = 25; // board-local to screen
         // wallet
         ctx.save(); roundRect(40, 168, 300, 40, 20); ctx.fillStyle = 'rgba(40,14,2,.72)'; ctx.fill(); ctx.restore();
-        ui('lobby/shop/icon-gold', 62, 188, { ax: .5, ay: .5, s: .6 }); text(fmt(S.gold), 84, 189, { size: 22, weight: 900, color: '#ffe9a6' });
-        ui('lobby/shop/icon-silver', 196, 188, { ax: .5, ay: .5, s: .6 }); text(fmt(S.silver), 218, 189, { size: 22, weight: 900, color: '#fff' });
+        ui('lobby/shop/icon-gold', 62, 188, { ax: .5, ay: .5, s: .6 }); text(fmt(S.gold), 84, 189, { size: 22, weight: 900, color: '#ffe9a6', maxW: 176 - 84 });
+        ui('lobby/shop/icon-silver', 196, 188, { ax: .5, ay: .5, s: .6 }); text(fmt(S.silver), 218, 189, { size: 22, weight: 900, color: '#fff', maxW: 332 - 218 });
         const list = m.list(); const per = 16;
         const COLS = [158, 293, 428, 563], ROWS = [250, 390, 530, 670];
         for (let i = 0; i < per; i++) {
