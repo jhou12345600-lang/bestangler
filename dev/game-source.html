@@ -1324,9 +1324,6 @@ const titleScene = {
   exit() { hideFields(); },
   update(dt) {
     this.t += dt;
-    // Spine 測試：WILD 動畫在登入畫面播放（載入完成後才出現，不影響開場載入）
-    if (this.ready && !this.spineReq) { this.spineReq = true; SPINE.load('wild').then(d => { this.spine = SPINE.make(d); this.spineT = 0; }).catch(() => {}); }
-    if (this.spine) { this.spineT += dt; try { SPINE.update(this.spine, dt); } catch (e) { console.warn('spine', e); this.spine = null; } }
   },
   draw() {
     if (PX > 0) { // wide screen: the portrait cover in the middle, a soft blurred copy behind it
@@ -1341,7 +1338,6 @@ const titleScene = {
     const g = ctx.createLinearGradient(0, 0, 720, LH);
     g.addColorStop(0, 'rgba(255,240,200,.18)'); g.addColorStop(.5, 'rgba(255,255,255,0)'); g.addColorStop(1, 'rgba(0,30,40,.35)');
     ctx.fillStyle = g; ctx.fillRect(0, 0, 720, LH);
-    if (this.spine) SPINE.draw(this.spine, 606, 168, .34, Math.min(1, this.spineT * 2.5));   // Spine 測試動畫（右上）
     // loading bar / start
     const by = 1120;
     if (this.ready && NET.mode === 'fire') { this.drawRest(); return; }
